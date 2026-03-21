@@ -19,6 +19,7 @@ dependencies = [
     "sse-starlette>=3.3.3",
     "streamlit>=1.55.0",
     "httpx>=0.28.1",
+    "python-multipart>=0.0.22",
 ]
 
 [build-system]

@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from docagent.routers.chat import router as chat_router
+from docagent.routers.agents import router as agents_router
+from docagent.routers.documents import router as documents_router
 
 load_dotenv()
 
@@ -19,3 +21,5 @@ if os.getenv("LANGSMITH_API_KEY"):
 
 app = FastAPI(title="DocAgent API", version="2.0.0")
 app.include_router(chat_router)
+app.include_router(agents_router)
+app.include_router(documents_router)
