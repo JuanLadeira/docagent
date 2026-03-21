@@ -1,56 +1,58 @@
 """
-Testes TDD para a API FastAPI (api.py).
+Testes de integracao para a API FastAPI (api.py).
 
-Escritos ANTES da implementacao — guiam o desenvolvimento.
-Todos devem falhar inicialmente e passar apos a implementacao.
-
-Cobre:
-- GET /health
-- POST /chat (SSE streaming)
-- DELETE /session/{session_id}
-- Gerenciamento de sessao
-- Formato SSE
-- Configuracao do LangSmith
+Adaptados para a Fase 5: usa dependency_overrides em vez de patch de modulo.
+Cobre os mesmos cenarios da Fase 4 com o novo padrao de injecao de dependencia.
 """
 import json
+import os
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
-from langchain_core.messages import HumanMessage, AIMessage
 
 
 # ---------------------------------------------------------------------------
-# Fixture: client com agente mockado
+# Helpers e fixtures
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def mock_graph():
-    """Grafo mockado que retorna uma resposta simples sem chamar o Ollama."""
-    graph = MagicMock()
-    graph.stream.return_value = iter([
-        {
-            "messages": [
-                HumanMessage(content="O que e RAG?"),
-                AIMessage(content="RAG e uma tecnica de busca semantica."),
-            ],
-            "summary": "",
-        }
+def make_mock_service(answer="RAG e uma tecnica de busca semantica."):
+    """ChatService mockado que emite SSE valido com resposta padrao."""
+    service = MagicMock()
+    service.stream.return_value = iter([
+        f"data: {json.dumps({'type': 'answer', 'content': answer})}\n\n",
+        f"data: {json.dumps({'type': 'done'})}\n\n",
     ])
-    return graph
+    service.delete_session.return_value = True
+    return service
 
 
 @pytest.fixture
-def client(mock_graph):
-    """TestClient com sessoes e grafo resetados a cada teste."""
-    with (
-        patch("docagent.tools.OllamaEmbeddings"),
-        patch("docagent.tools.Chroma"),
-        patch("docagent.tools.DuckDuckGoSearchRun"),
-        patch("docagent.api.build_graph", return_value=mock_graph),
-    ):
-        from docagent.api import app, sessions
-        sessions.clear()
-        yield TestClient(app)
+def client():
+    """TestClient com ChatService mockado via dependency_overrides."""
+    from docagent.api import app
+    from docagent.dependencies import get_chat_service
+
+    mock_service = make_mock_service()
+    app.dependency_overrides[get_chat_service] = lambda: mock_service
+
+    yield TestClient(app), mock_service
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client_missing_session():
+    """Client onde delete_session retorna False (sessao inexistente)."""
+    from docagent.api import app
+    from docagent.dependencies import get_chat_service
+
+    mock_service = make_mock_service()
+    mock_service.delete_session.return_value = False
+    app.dependency_overrides[get_chat_service] = lambda: mock_service
+
+    yield TestClient(app)
+
+    app.dependency_overrides.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -59,12 +61,12 @@ def client(mock_graph):
 
 class TestHealthEndpoint:
     def test_returns_200(self, client):
-        response = client.get("/health")
-        assert response.status_code == 200
+        tc, _ = client
+        assert tc.get("/health").status_code == 200
 
     def test_returns_status_ok(self, client):
-        response = client.get("/health")
-        assert response.json() == {"status": "ok"}
+        tc, _ = client
+        assert tc.get("/health").json() == {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------
@@ -74,36 +76,40 @@ class TestHealthEndpoint:
 class TestChatEndpoint:
     def test_missing_question_returns_422(self, client):
         """FastAPI deve rejeitar request sem o campo obrigatorio 'question'."""
-        response = client.post("/chat", json={})
-        assert response.status_code == 422
+        tc, _ = client
+        assert tc.post("/chat", json={}).status_code == 422
 
     def test_empty_question_returns_422(self, client):
         """Pergunta vazia deve ser rejeitada."""
-        response = client.post("/chat", json={"question": ""})
-        assert response.status_code == 422
+        tc, _ = client
+        assert tc.post("/chat", json={"question": ""}).status_code == 422
 
     def test_valid_question_returns_200(self, client):
-        response = client.post("/chat", json={"question": "O que e RAG?"})
-        assert response.status_code == 200
+        tc, _ = client
+        assert tc.post("/chat", json={"question": "O que e RAG?"}).status_code == 200
 
     def test_response_content_type_is_event_stream(self, client):
         """Resposta deve ser SSE — content-type text/event-stream."""
-        response = client.post("/chat", json={"question": "O que e RAG?"})
+        tc, _ = client
+        response = tc.post("/chat", json={"question": "O que e RAG?"})
         assert "text/event-stream" in response.headers["content-type"]
 
     def test_stream_contains_done_event(self, client):
         """O stream deve sempre terminar com um evento 'done'."""
-        response = client.post("/chat", json={"question": "O que e RAG?"})
+        tc, _ = client
+        response = tc.post("/chat", json={"question": "O que e RAG?"})
         assert "done" in response.text
 
     def test_stream_contains_answer_event(self, client):
         """O stream deve conter um evento com a resposta final do agente."""
-        response = client.post("/chat", json={"question": "O que e RAG?"})
+        tc, _ = client
+        response = tc.post("/chat", json={"question": "O que e RAG?"})
         assert "answer" in response.text
 
     def test_stream_answer_contains_agent_response(self, client):
         """O evento 'answer' deve conter o texto gerado pelo agente."""
-        response = client.post("/chat", json={"question": "O que e RAG?"})
+        tc, _ = client
+        response = tc.post("/chat", json={"question": "O que e RAG?"})
         assert "RAG e uma tecnica de busca semantica." in response.text
 
 
@@ -127,7 +133,8 @@ class TestSSEFormat:
 
     def test_each_event_has_type_field(self, client):
         """Todo evento SSE deve ter o campo 'type'."""
-        response = client.post("/chat", json={"question": "teste"})
+        tc, _ = client
+        response = tc.post("/chat", json={"question": "teste"})
         events = self._parse_sse_events(response.text)
         assert len(events) > 0
         for event in events:
@@ -135,13 +142,15 @@ class TestSSEFormat:
 
     def test_last_event_is_done(self, client):
         """O ultimo evento deve ser do tipo 'done'."""
-        response = client.post("/chat", json={"question": "teste"})
+        tc, _ = client
+        response = tc.post("/chat", json={"question": "teste"})
         events = self._parse_sse_events(response.text)
         assert events[-1]["type"] == "done"
 
     def test_answer_event_has_content_field(self, client):
         """O evento 'answer' deve ter o campo 'content' com a resposta."""
-        response = client.post("/chat", json={"question": "teste"})
+        tc, _ = client
+        response = tc.post("/chat", json={"question": "teste"})
         events = self._parse_sse_events(response.text)
         answer_events = [e for e in events if e["type"] == "answer"]
         assert len(answer_events) == 1
@@ -153,56 +162,54 @@ class TestSSEFormat:
 # ---------------------------------------------------------------------------
 
 class TestSessionManagement:
-    def test_session_created_on_first_request(self, client):
-        """A primeira requisicao com um session_id deve criar a sessao."""
-        from docagent.api import sessions
-        assert "minha-sessao" not in sessions
-
-        client.post("/chat", json={"question": "oi", "session_id": "minha-sessao"})
-
-        assert "minha-sessao" in sessions
+    def test_session_id_passed_to_service(self, client):
+        """O session_id deve ser repassado ao ChatService."""
+        tc, mock_service = client
+        tc.post("/chat", json={"question": "oi", "session_id": "minha-sessao"})
+        mock_service.stream.assert_called_once_with("oi", "minha-sessao")
 
     def test_default_session_id_is_used_when_not_provided(self, client):
         """Sem session_id, deve usar 'default'."""
-        from docagent.api import sessions
-        client.post("/chat", json={"question": "oi"})
-        assert "default" in sessions
+        tc, mock_service = client
+        tc.post("/chat", json={"question": "oi"})
+        mock_service.stream.assert_called_once_with("oi", "default")
 
-    def test_same_session_id_reuses_existing_state(self, client, mock_graph):
-        """Duas requisicoes com o mesmo session_id devem compartilhar o estado."""
-        from docagent.api import sessions
+    def test_same_session_id_calls_service_twice(self, client):
+        """Duas requisicoes com o mesmo session_id devem chamar o servico duas vezes."""
+        from unittest.mock import MagicMock
+        tc, mock_service = client
 
-        client.post("/chat", json={"question": "primeira", "session_id": "sess-1"})
-        state_after_first = sessions.get("sess-1")
+        mock_service.stream.side_effect = [
+            iter([
+                f"data: {json.dumps({'type': 'answer', 'content': 'r1'})}\n\n",
+                f"data: {json.dumps({'type': 'done'})}\n\n",
+            ]),
+            iter([
+                f"data: {json.dumps({'type': 'answer', 'content': 'r2'})}\n\n",
+                f"data: {json.dumps({'type': 'done'})}\n\n",
+            ]),
+        ]
 
-        client.post("/chat", json={"question": "segunda", "session_id": "sess-1"})
-        state_after_second = sessions.get("sess-1")
+        tc.post("/chat", json={"question": "primeira", "session_id": "sess-1"})
+        tc.post("/chat", json={"question": "segunda", "session_id": "sess-1"})
 
-        # O grafo deve ter sido chamado duas vezes com a mesma sessao
-        assert mock_graph.stream.call_count == 2
-
-        # Estado deve existir apos ambas as chamadas
-        assert state_after_first is not None
-        assert state_after_second is not None
+        assert mock_service.stream.call_count == 2
 
     def test_delete_session_returns_200(self, client):
-        """DELETE /session/{id} deve retornar 200."""
-        client.post("/chat", json={"question": "oi", "session_id": "para-deletar"})
-        response = client.delete("/session/para-deletar")
+        """DELETE /session/{id} deve retornar 200 para sessao existente."""
+        tc, _ = client
+        response = tc.delete("/session/para-deletar")
         assert response.status_code == 200
 
-    def test_delete_session_clears_state(self, client):
-        """Apos DELETE, a sessao nao deve mais existir."""
-        from docagent.api import sessions
-        client.post("/chat", json={"question": "oi", "session_id": "para-deletar"})
-        assert "para-deletar" in sessions
+    def test_delete_session_delegates_to_service(self, client):
+        """DELETE deve chamar service.delete_session com o id correto."""
+        tc, mock_service = client
+        tc.delete("/session/minha-sessao")
+        mock_service.delete_session.assert_called_once_with("minha-sessao")
 
-        client.delete("/session/para-deletar")
-        assert "para-deletar" not in sessions
-
-    def test_delete_nonexistent_session_returns_404(self, client):
+    def test_delete_nonexistent_session_returns_404(self, client_missing_session):
         """Deletar sessao inexistente deve retornar 404."""
-        response = client.delete("/session/nao-existe")
+        response = client_missing_session.delete("/session/nao-existe")
         assert response.status_code == 404
 
 
@@ -216,16 +223,14 @@ class TestLangSmithConfig:
         monkeypatch.setenv("LANGSMITH_API_KEY", "lsv2_fake_key")
 
         with (
-            patch("docagent.tools.OllamaEmbeddings"),
-            patch("docagent.tools.Chroma"),
-            patch("docagent.tools.DuckDuckGoSearchRun"),
-            patch("docagent.api.build_graph", return_value=MagicMock()),
+            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.OllamaEmbeddings"),
+            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.Chroma"),
+            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.DuckDuckGoSearchRun"),
         ):
             import importlib
             import docagent.api as api_module
             importlib.reload(api_module)
 
-        import os
         assert os.getenv("LANGCHAIN_TRACING_V2") == "true"
 
     def test_tracing_disabled_without_api_key(self, monkeypatch):
@@ -234,14 +239,12 @@ class TestLangSmithConfig:
         monkeypatch.delenv("LANGCHAIN_TRACING_V2", raising=False)
 
         with (
-            patch("docagent.tools.OllamaEmbeddings"),
-            patch("docagent.tools.Chroma"),
-            patch("docagent.tools.DuckDuckGoSearchRun"),
-            patch("docagent.api.build_graph", return_value=MagicMock()),
+            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.OllamaEmbeddings"),
+            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.Chroma"),
+            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.DuckDuckGoSearchRun"),
         ):
             import importlib
             import docagent.api as api_module
             importlib.reload(api_module)
 
-        import os
         assert os.getenv("LANGCHAIN_TRACING_V2") != "true"
