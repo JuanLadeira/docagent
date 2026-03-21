@@ -131,7 +131,7 @@ class AtendimentoService:
             if instancia:
                 await self.client.post(
                     f"/message/sendText/{instancia.instance_name}",
-                    json={"number": numero, "textMessage": {"text": mensagem_inicial}},
+                    json={"number": numero, "text": mensagem_inicial},
                 )
             msg = await self.salvar_mensagem(atendimento.id, MensagemOrigem.OPERADOR, mensagem_inicial)
 
@@ -151,7 +151,7 @@ class AtendimentoService:
         if instancia:
             await self.client.post(
                 f"/message/sendText/{instancia.instance_name}",
-                json={"number": atendimento.numero, "textMessage": {"text": conteudo}},
+                json={"number": atendimento.numero, "text": conteudo},
             )
 
         return await self.salvar_mensagem(atendimento.id, MensagemOrigem.OPERADOR, conteudo)
