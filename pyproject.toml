@@ -20,6 +20,12 @@ dependencies = [
     "streamlit>=1.55.0",
     "httpx>=0.28.1",
     "python-multipart>=0.0.22",
+    "sqlalchemy[asyncio]>=2.0.48",
+    "aiosqlite>=0.22.1",
+    "alembic>=1.18.4",
+    "pwdlib[argon2]>=0.3.0",
+    "pydantic[email]>=2.12.5",
+    "pyjwt>=2.12.1",
 ]
 
 [build-system]

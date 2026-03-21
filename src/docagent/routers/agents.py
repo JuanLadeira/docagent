@@ -1,20 +1,22 @@
 """
-Fase 6 — Router de agentes: lista os agentes disponíveis com suas skills.
+Router de agentes: lista os agentes ativos com suas skills.
+Os agentes sao lidos do banco de dados.
 """
 from fastapi import APIRouter
 
+from docagent.agente.services import AgenteServiceDep
 from docagent.schemas.chat import AgentInfo, SkillInfo
-from docagent.agents.registry import AGENT_REGISTRY
 from docagent.skills import SKILL_REGISTRY
 
 router = APIRouter()
 
 
 @router.get("/agents", response_model=list[AgentInfo])
-def list_agents() -> list[AgentInfo]:
-    """Lista todos os agentes disponíveis com suas skills e metadados."""
+async def list_agents(service: AgenteServiceDep) -> list[AgentInfo]:
+    """Lista todos os agentes ativos com suas skills."""
+    agentes = await service.get_all(apenas_ativos=True)
     result = []
-    for config in AGENT_REGISTRY.values():
+    for agente in agentes:
         skills = [
             SkillInfo(
                 name=SKILL_REGISTRY[name].name,
@@ -22,13 +24,13 @@ def list_agents() -> list[AgentInfo]:
                 icon=SKILL_REGISTRY[name].icon,
                 description=SKILL_REGISTRY[name].description,
             )
-            for name in config.skill_names
+            for name in agente.skill_names
             if name in SKILL_REGISTRY
         ]
         result.append(AgentInfo(
-            id=config.id,
-            name=config.name,
-            description=config.description,
+            id=str(agente.id),
+            name=agente.nome,
+            description=agente.descricao,
             skills=skills,
         ))
     return result
