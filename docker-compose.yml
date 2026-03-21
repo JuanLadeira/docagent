@@ -1,0 +1,34 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: compose/Dockerfile
+    command: uv run uvicorn docagent.api:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # No WSL2/Linux, o Ollama nativo e acessivel via host networking.
+      # No Windows/Mac com Docker Desktop, use host.docker.internal.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      CHROMA_PATH: /app/data/chroma_db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      dockerfile: compose/Dockerfile
+    command: >
+      uv run streamlit run src/docagent/ui.py
+      --server.port 8501
+      --server.address 0.0.0.0
+      --server.headless true
+    ports:
+      - "8501:8501"
+    environment:
+      API_URL: http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
