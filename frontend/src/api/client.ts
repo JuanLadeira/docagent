@@ -63,6 +63,21 @@ export interface AgenteUpdate {
   ativo?: boolean
 }
 
+export interface WhatsappInstancia {
+  id: number
+  instance_name: string
+  status: 'CRIADA' | 'CONECTANDO' | 'CONECTADA' | 'DESCONECTADA'
+  tenant_id: number
+  agente_id: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface InstanciaCreate {
+  instance_name: string
+  agente_id: number | null
+}
+
 // ── Endpoints ────────────────────────────────────────────────────────────────
 
 export const api = {
@@ -89,6 +104,63 @@ export const api = {
   createAgente: (data: AgenteCreate) => apiClient.post<Agente>('/agentes/', data),
   updateAgente: (id: number, data: AgenteUpdate) => apiClient.put<Agente>(`/agentes/${id}`, data),
   deleteAgente: (id: number) => apiClient.delete(`/agentes/${id}`),
+
+  // WhatsApp
+  listInstancias: () => apiClient.get<WhatsappInstancia[]>('/whatsapp/instancias'),
+  createInstancia: (data: InstanciaCreate) =>
+    apiClient.post<WhatsappInstancia>('/whatsapp/instancias', data),
+  deleteInstancia: (id: number) => apiClient.delete(`/whatsapp/instancias/${id}`),
+  getQrcode: (id: number) => apiClient.get<{ base64?: string; status?: string }>(`/whatsapp/instancias/${id}/qrcode`),
+  sincronizarStatus: (id: number) =>
+    apiClient.get<WhatsappInstancia>(`/whatsapp/instancias/${id}/status`),
+}
+
+/**
+ * Subscreve eventos SSE de uma instância WhatsApp (QR code, status de conexão).
+ * Usa fetch + ReadableStream (igual ao streamChat) pois EventSource não suporta Authorization header.
+ * Retorna função de cleanup para cancelar a subscrição.
+ */
+export function subscribeInstanciaEventos(
+  id: number,
+  onEvent: (event: { type: string; [key: string]: unknown }) => void,
+): () => void {
+  let cancelled = false
+  const token = sessionStorage.getItem('token') ?? ''
+  const decoder = new TextDecoder()
+
+  ;(async () => {
+    try {
+      const res = await fetch(`/api/whatsapp/instancias/${id}/eventos`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok || !res.body) return
+      const reader = res.body.getReader()
+      let buffer = ''
+      while (!cancelled) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue
+          try {
+            const event = JSON.parse(line.slice(5).trim())
+            if (!cancelled) onEvent(event)
+          } catch {
+            // linha malformada
+          }
+        }
+      }
+      reader.cancel()
+    } catch {
+      // conexão encerrada
+    }
+  })()
+
+  return () => {
+    cancelled = true
+  }
 }
 
 export default apiClient

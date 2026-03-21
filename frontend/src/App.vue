@@ -17,6 +17,7 @@ const navItems = computed(() => {
     { name: 'Conversa', path: '/conversa', icon: '💬' },
   ]
   if (auth.isOwner) {
+    items.push({ name: 'WhatsApp', path: '/whatsapp', icon: '📱' })
     items.push({ name: 'Agentes', path: '/agentes', icon: '🤖' })
   }
   items.push({ name: 'Configurações', path: '/configuracoes', icon: '⚙️' })
