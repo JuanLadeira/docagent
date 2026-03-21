@@ -50,7 +50,7 @@ def split_documents(docs: list) -> list:
     return chunks
 
 
-def build_vectorstore(chunks: list) -> Chroma:
+def build_vectorstore(chunks: list, collection_name: str = "docagent") -> Chroma:
     """Cria embeddings e persiste no ChromaDB."""
     console.print("\n[blue]Gerando embeddings com nomic-embed-text...[/blue]")
     console.print("[dim]Isso pode demorar alguns minutos na primeira vez.[/dim]\n")
@@ -64,7 +64,7 @@ def build_vectorstore(chunks: list) -> Chroma:
         documents=chunks,
         embedding=embeddings,
         persist_directory=os.getenv("CHROMA_PATH", "./data/chroma_db"),
-        collection_name="docagent",
+        collection_name=collection_name,
     )
 
     console.print(f"[green]✓ Vectorstore criado com {len(chunks)} chunks![/green]")
