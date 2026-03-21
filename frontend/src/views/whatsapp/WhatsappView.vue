@@ -72,14 +72,7 @@ async function conectar(instancia: WhatsappInstancia) {
   qrBase64.value = null
   showQrModal.value = true
 
-  try {
-    const res = await api.getQrcode(instancia.id)
-    qrBase64.value = res.data.base64 ?? null
-    atualizarStatus(instancia.id, 'CONECTANDO')
-  } catch {
-    // QR pode chegar pelo SSE
-  }
-
+  // SSE primeiro — garante que QRCODE_UPDATED não é perdido por race condition
   sseCleanup?.()
   sseCleanup = subscribeInstanciaEventos(instancia.id, (event) => {
     if (event.type === 'QRCODE_UPDATED' && event.qr_base64) {
@@ -90,6 +83,19 @@ async function conectar(instancia: WhatsappInstancia) {
       if (status === 'CONECTADA') fecharQrModal()
     }
   })
+
+  // Pequeno delay para o subscribe HTTP ser processado antes de disparar o QR
+  await new Promise(resolve => setTimeout(resolve, 200))
+
+  try {
+    const res = await api.getQrcode(instancia.id)
+    if (res.data.base64) {
+      qrBase64.value = res.data.base64
+    }
+    atualizarStatus(instancia.id, 'CONECTANDO')
+  } catch {
+    // SSE ainda receberá QRCODE_UPDATED se chegar via webhook
+  }
 }
 
 function fecharQrModal() {

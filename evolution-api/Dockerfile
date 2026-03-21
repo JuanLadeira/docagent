@@ -14,8 +14,7 @@ RUN npm ci --silent
 
 RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
 
-COPY ./.env.example ./.env 2>/dev/null || true
-RUN ./Docker/scripts/generate_database.sh
+RUN cp .env.example .env && ./Docker/scripts/generate_database.sh
 
 RUN npm run build
 
