@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute, RouterView } from 'vue-router'
+import { useRoute, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
@@ -12,10 +12,16 @@ const isPublicRoute = computed(() =>
 )
 const showSidebar = computed(() => !isAdminRoute.value && !isPublicRoute.value && auth.isAuthenticated)
 
-const navItems = [
-  { name: 'Conversa', path: '/conversa', icon: '💬' },
-  { name: 'Configurações', path: '/configuracoes', icon: '⚙️' },
-]
+const navItems = computed(() => {
+  const items = [
+    { name: 'Conversa', path: '/conversa', icon: '💬' },
+  ]
+  if (auth.isOwner) {
+    items.push({ name: 'Agentes', path: '/agentes', icon: '🤖' })
+  }
+  items.push({ name: 'Configurações', path: '/configuracoes', icon: '⚙️' })
+  return items
+})
 </script>
 
 <template>

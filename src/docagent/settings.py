@@ -12,3 +12,5 @@ class Settings:
     DOCAGENT_DB_URL: str = os.getenv(
         "DOCAGENT_DB_URL", "sqlite+aiosqlite:///./docagent.db"
     )
+    ADMIN_DEFAULT_USERNAME: str = os.getenv("ADMIN_DEFAULT_USERNAME", "admin")
+    ADMIN_DEFAULT_PASSWORD: str = os.getenv("ADMIN_DEFAULT_PASSWORD", "admin")

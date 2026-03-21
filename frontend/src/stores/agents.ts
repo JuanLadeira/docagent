@@ -21,5 +21,10 @@ export const useAgentsStore = defineStore('agents', () => {
     }
   }
 
-  return { agents, isFetching, fetchIfNeeded }
+  function invalidate() {
+    fetched.value = false
+    agents.value = []
+  }
+
+  return { agents, isFetching, fetchIfNeeded, invalidate }
 })

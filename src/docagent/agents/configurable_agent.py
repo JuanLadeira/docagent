@@ -22,10 +22,16 @@ Nunca responda apenas com seu conhecimento pre-treinado.\
 class ConfigurableAgent(BaseAgent):
     """Agente cujas tools e prompt sao definidos pelo AgentConfig injetado."""
 
-    def __init__(self, config: AgentConfig, session_collection: str | None = None):
+    def __init__(
+        self,
+        config: AgentConfig,
+        session_collection: str | None = None,
+        system_prompt_override: str | None = None,
+    ):
         super().__init__()
         self._config = config
         self._session_collection = session_collection
+        self._system_prompt_override = system_prompt_override
 
     @property
     def tools(self) -> list:
@@ -37,6 +43,8 @@ class ConfigurableAgent(BaseAgent):
 
     @property
     def system_prompt(self) -> str:
+        if self._system_prompt_override:
+            return self._system_prompt_override
         tool_lines = "\n".join(
             f"- {SKILL_REGISTRY[name].name}: {SKILL_REGISTRY[name].description}"
             for name in self._config.skill_names

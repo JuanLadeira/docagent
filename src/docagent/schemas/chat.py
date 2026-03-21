@@ -9,24 +9,13 @@ from pydantic import BaseModel, field_validator
 class ChatRequest(BaseModel):
     question: str
     session_id: str = "default"
-    agent_id: str = "doc-analyst"
+    agent_id: str = "1"
 
     @field_validator("question")
     @classmethod
     def question_must_not_be_empty(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("question must not be empty")
-        return v
-
-    @field_validator("agent_id")
-    @classmethod
-    def agent_must_exist(cls, v: str) -> str:
-        from docagent.agents.registry import AGENT_REGISTRY
-        if v not in AGENT_REGISTRY:
-            raise ValueError(
-                f"Agente '{v}' nao encontrado. "
-                f"Disponiveis: {list(AGENT_REGISTRY.keys())}"
-            )
         return v
 
 

@@ -36,6 +36,33 @@ export interface Usuario {
   updated_at: string
 }
 
+export interface Agente {
+  id: number
+  nome: string
+  descricao: string
+  system_prompt: string | null
+  skill_names: string[]
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AgenteCreate {
+  nome: string
+  descricao: string
+  system_prompt: string | null
+  skill_names: string[]
+  ativo: boolean
+}
+
+export interface AgenteUpdate {
+  nome?: string
+  descricao?: string
+  system_prompt?: string | null
+  skill_names?: string[]
+  ativo?: boolean
+}
+
 // ── Endpoints ────────────────────────────────────────────────────────────────
 
 export const api = {
@@ -55,6 +82,13 @@ export const api = {
 
   changePassword: (current_password: string, new_password: string) =>
     apiClient.post('/auth/change-password', { current_password, new_password }),
+
+  // Agentes
+  listAgentes: () => apiClient.get<Agente[]>('/agentes/'),
+  getAgente: (id: number) => apiClient.get<Agente>(`/agentes/${id}`),
+  createAgente: (data: AgenteCreate) => apiClient.post<Agente>('/agentes/', data),
+  updateAgente: (id: number, data: AgenteUpdate) => apiClient.put<Agente>(`/agentes/${id}`, data),
+  deleteAgente: (id: number) => apiClient.delete(`/agentes/${id}`),
 }
 
 export default apiClient
