@@ -24,22 +24,16 @@ class WhatsappService:
     # ── Instâncias (DB + Evolution API) ─────────────────────────────
 
     async def criar_instancia(self, tenant_id: int, data: InstanciaCreate, webhook_url: str) -> WhatsappInstancia:
-        webhook_config = {
-            "url": webhook_url,
-            "byEvents": False,
-            "base64": True,
-            "readMessage": True,
-            "events": ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
-        }
-
+        # v1: webhook é string (URL), opções de webhook são campos separados
         r = await self.client.post(
             "/instance/create",
             json={
                 "instanceName": data.instance_name,
                 "qrcode": True,
-                "integration": "WHATSAPP-BAILEYS",
-                "webhook_whatsapp_business": False,
-                "webhook": webhook_config,
+                "webhook": webhook_url,
+                "webhookByEvents": False,
+                "webhookBase64": True,
+                "events": ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
             },
         )
         _verificar_resposta(r)
@@ -75,7 +69,17 @@ class WhatsappService:
         _verificar_resposta(r)
         instancia.status = ConexaoStatus.CONECTANDO
         await self.session.flush()
-        return r.json()
+        data = r.json()
+        # Evolution API v2 retorna base64 em campos distintos dependendo do estado
+        base64 = (
+            data.get("base64")
+            or data.get("qrcode", {}).get("base64")
+            or data.get("code")
+            or ""
+        )
+        if base64 and not base64.startswith("data:"):
+            base64 = f"data:image/png;base64,{base64}"
+        return {"base64": base64, "status": "CONECTANDO"}
 
     async def sincronizar_status(self, instancia: WhatsappInstancia) -> WhatsappInstancia:
         r = await self.client.get(f"/instance/connectionState/{instancia.instance_name}")

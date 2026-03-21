@@ -78,6 +78,31 @@ export interface InstanciaCreate {
   agente_id: number | null
 }
 
+export type AtendimentoStatus = 'ATIVO' | 'HUMANO' | 'ENCERRADO'
+export type MensagemOrigem = 'CONTATO' | 'AGENTE' | 'OPERADOR'
+
+export interface MensagemAtendimento {
+  id: number
+  origem: MensagemOrigem
+  conteudo: string
+  created_at: string
+}
+
+export interface Atendimento {
+  id: number
+  numero: string
+  nome_contato: string | null
+  instancia_id: number
+  tenant_id: number
+  status: AtendimentoStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface AtendimentoDetalhe extends Atendimento {
+  mensagens: MensagemAtendimento[]
+}
+
 // ── Endpoints ────────────────────────────────────────────────────────────────
 
 export const api = {
@@ -105,6 +130,18 @@ export const api = {
   updateAgente: (id: number, data: AgenteUpdate) => apiClient.put<Agente>(`/agentes/${id}`, data),
   deleteAgente: (id: number) => apiClient.delete(`/agentes/${id}`),
 
+  // Atendimento
+  criarAtendimento: (data: { instancia_id: number; numero: string; mensagem_inicial?: string }) =>
+    apiClient.post<Atendimento>('/atendimentos', data),
+  listAtendimentos: (status?: AtendimentoStatus) =>
+    apiClient.get<Atendimento[]>('/atendimentos', { params: status ? { status } : undefined }),
+  getAtendimento: (id: number) => apiClient.get<AtendimentoDetalhe>(`/atendimentos/${id}`),
+  assumirAtendimento: (id: number) => apiClient.post<Atendimento>(`/atendimentos/${id}/assumir`),
+  devolverAtendimento: (id: number) => apiClient.post<Atendimento>(`/atendimentos/${id}/devolver`),
+  encerrarAtendimento: (id: number) => apiClient.post<Atendimento>(`/atendimentos/${id}/encerrar`),
+  enviarMensagemOperador: (id: number, conteudo: string) =>
+    apiClient.post<MensagemAtendimento>(`/atendimentos/${id}/mensagens`, { conteudo }),
+
   // WhatsApp
   listInstancias: () => apiClient.get<WhatsappInstancia[]>('/whatsapp/instancias'),
   createInstancia: (data: InstanciaCreate) =>
@@ -131,6 +168,52 @@ export function subscribeInstanciaEventos(
   ;(async () => {
     try {
       const res = await fetch(`/api/whatsapp/instancias/${id}/eventos`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok || !res.body) return
+      const reader = res.body.getReader()
+      let buffer = ''
+      while (!cancelled) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue
+          try {
+            const event = JSON.parse(line.slice(5).trim())
+            if (!cancelled) onEvent(event)
+          } catch {
+            // linha malformada
+          }
+        }
+      }
+      reader.cancel()
+    } catch {
+      // conexão encerrada
+    }
+  })()
+
+  return () => {
+    cancelled = true
+  }
+}
+
+/**
+ * Subscreve eventos SSE de um atendimento (novas mensagens em tempo real).
+ */
+export function subscribeAtendimentoEventos(
+  id: number,
+  onEvent: (event: { type: string; [key: string]: unknown }) => void,
+): () => void {
+  let cancelled = false
+  const token = sessionStorage.getItem('token') ?? ''
+  const decoder = new TextDecoder()
+
+  ;(async () => {
+    try {
+      const res = await fetch(`/api/atendimentos/${id}/eventos`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!res.ok || !res.body) return
