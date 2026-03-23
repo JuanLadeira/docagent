@@ -297,98 +297,17 @@ api.listMcpTools(id)                       // GET /api/mcp-servidores/{id}/tools
 
 ---
 
-## Estado Atual do Codebase (pós-fases 12-14)
+## Ordem de Implementação
 
-Desde a escrita deste documento, o codebase evoluiu. Os pontos relevantes para a implementação:
-
-### `/chat` tem agora dois endpoints
-
-`routers/chat.py` expõe:
-- `POST /chat` — streaming SSE (frontend Vue)
-- `POST /chat/sync` — resposta JSON síncrona (n8n, Evolution API)
-
-Ambos precisam suporte a MCP. A lógica de `AsyncExitStack` se aplica ao `/chat` SSE. Para o `/chat/sync`, as tools MCP são carregadas antes de `agent.run()`.
-
-### Agent cache em `whatsapp/router.py`
-
-A fase 14 adicionou um cache de agentes construídos em `whatsapp/router.py`:
-
-```python
-_agent_cache: dict[tuple, BaseAgent] = {}
-
-def _get_or_build_agent(agente_obj) -> BaseAgent:
-    cache_key = (agente_obj.id, tuple(agente_obj.skill_names), agente_obj.system_prompt or "")
-    ...
-```
-
-**Problema:** agentes com skills MCP precisam de `AsyncExitStack` por requisição — não podem ter as tools pré-construídas e cacheadas, pois as ferramentas MCP exigem conexão ativa durante o streaming.
-
-**Solução:** em `_get_or_build_agent`, verificar se o agente tem skills MCP. Se sim, não usar cache — construir na hora sem tools MCP (que serão injetadas via `extra_tools` pelo caller).
-
-```python
-def _tem_skills_mcp(agente_obj) -> bool:
-    return any(s.startswith("mcp:") for s in agente_obj.skill_names)
-
-def _get_or_build_agent(agente_obj) -> BaseAgent:
-    if _tem_skills_mcp(agente_obj):
-        # Não cachear — as MCP tools são carregadas por requisição
-        config = AgentConfig(...)
-        return ConfigurableAgent(config, ...).build()  # sem extra_tools aqui
-    # cache normal para agentes sem MCP
-    ...
-```
-
-As MCP tools são passadas à parte pela função que chama o agente no webhook.
-
-### Resumo dos deltas em relação ao design original
-
-| Ponto | Design original | Ajuste necessário |
-|-------|----------------|------------------|
-| Endpoints de chat | Apenas `/chat` SSE | Cobrir também `/chat/sync` |
-| Agent cache | Não existia | Agents com `mcp:*` skills bypassam o cache |
-| Módulo MCP | Não existe ainda | Criar do zero |
-| Dependências | Não instaladas | `uv add mcp langchain-mcp-adapters` |
-
----
-
-## Ordem de Implementação (atualizada)
-
-### Passo 1 — Dependências
-```bash
-uv add mcp langchain-mcp-adapters
-```
-Rebuild do container após isso.
-
-### Passo 2 — Backend: módulo `mcp_server/`
-Criar `src/docagent/mcp_server/` com:
-- `models.py` — `McpServer`, `McpTool`
-- `schemas.py` — Pydantic create/update/public
-- `services.py` — CRUD + `descobrir_tools()` + `load_mcp_tools_for_skills()`
-- `router.py` — endpoints `/api/mcp-servidores`
-
-### Passo 3 — `ConfigurableAgent` recebe `extra_tools`
-Adicionar `extra_tools: list = []` ao `__init__` e ao `tools` property.
-
-### Passo 4 — Router `/chat` (SSE)
-Envolver o generator com `AsyncExitStack` para manter os subprocessos MCP vivos durante todo o stream.
-
-### Passo 5 — Router `/chat/sync`
-Antes de `agent.run()`, carregar as MCP tools com `load_mcp_tools_for_skills()` e usar `async with AsyncExitStack()`.
-
-### Passo 6 — Webhook WhatsApp (`whatsapp/router.py`)
-Adaptar `_get_or_build_agent` para bypassar o cache quando há skills MCP. No webhook, as MCP tools são carregadas antes de `run_in_executor`.
-
-### Passo 7 — `api.py`
-Registrar `mcp_server_router`.
-
-### Passo 8 — Frontend: `McpServidoresView.vue`
-Nova view `/mcp-servidores` (apenas OWNER) com CRUD de servidores e botão "Descobrir Tools".
-
-### Passo 9 — Frontend: `AgentesView.vue`
-Atualizar seletor de skills para exibir seção separada por servidor MCP.
-
-### Passo 10 — Frontend: rota + nav
-Adicionar rota `/mcp-servidores` e item na nav para OWNER.
+1. `uv add mcp langchain-mcp-adapters`
+2. Criar `src/docagent/mcp_server/` (models, schemas, services, router)
+3. Registrar router em `api.py`
+4. Atualizar `ConfigurableAgent` (`extra_tools`)
+5. Atualizar `routers/chat.py` (AsyncExitStack lifecycle)
+6. Atualizar `routers/agents.py` (incluir MCP tools no AgentInfo)
+7. Frontend: `McpServidoresView.vue`
+8. Frontend: atualizar `AgentesView.vue` com seção MCP
+9. Frontend: rota + nav link
 
 ---
 

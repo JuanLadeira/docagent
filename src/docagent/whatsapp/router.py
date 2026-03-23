@@ -14,6 +14,7 @@ Notificações em tempo real (QR code, status):
 """
 import asyncio
 import json
+from contextlib import AsyncExitStack
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
@@ -49,27 +50,38 @@ router = APIRouter(
 
 # Cache de agentes construídos, keyed por (agente_id, skill_names, system_prompt).
 # Invalida automaticamente quando a configuração do agente muda.
+# Agentes com skills mcp:* NÃO são cacheados — precisam de conexão ativa por requisição.
 _agent_cache: dict[tuple, BaseAgent] = {}
 
 
+def _tem_skills_mcp(agente_obj: Agente) -> bool:
+    return any(s.startswith("mcp:") for s in agente_obj.skill_names)
+
+
+def _build_agent_obj(agente_obj: Agente, extra_tools: list | None = None) -> BaseAgent:
+    config = AgentConfig(
+        id=str(agente_obj.id),
+        name=agente_obj.nome,
+        description=agente_obj.descricao,
+        skill_names=agente_obj.skill_names,
+    )
+    return ConfigurableAgent(
+        config,
+        system_prompt_override=agente_obj.system_prompt or None,
+        extra_tools=extra_tools,
+    ).build()
+
+
 def _get_or_build_agent(agente_obj: Agente) -> BaseAgent:
-    """Retorna o agente cacheado ou constrói um novo se a config mudou."""
+    """Retorna o agente cacheado ou constrói um novo se a config mudou.
+    Agentes com skills MCP nunca são cacheados — use _build_agent_obj diretamente."""
     cache_key = (
         agente_obj.id,
         tuple(agente_obj.skill_names),
         agente_obj.system_prompt or "",
     )
     if cache_key not in _agent_cache:
-        config = AgentConfig(
-            id=str(agente_obj.id),
-            name=agente_obj.nome,
-            description=agente_obj.descricao,
-            skill_names=agente_obj.skill_names,
-        )
-        _agent_cache[cache_key] = ConfigurableAgent(
-            config,
-            system_prompt_override=agente_obj.system_prompt or None,
-        ).build()
+        _agent_cache[cache_key] = _build_agent_obj(agente_obj)
     return _agent_cache[cache_key]
 
 
@@ -444,13 +456,29 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         if atendimento_status == AtendimentoStatus.HUMANO or not agente or is_lid:
             return
 
-        # Executar agente (cache evita rebuild; executor libera o event loop)
-        agent = _get_or_build_agent(agente_obj)
-
+        # Executar agente — executor libera o event loop durante a inferência LLM.
+        # Agentes com skills MCP carregam tools via AsyncExitStack (conexão ativa durante run).
         sessions = get_session_manager()
         state = sessions.get(session_id)
         loop = asyncio.get_event_loop()
-        final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
+
+        if _tem_skills_mcp(agente_obj):
+            from docagent.mcp_server.models import McpServer
+            from docagent.mcp_server.services import load_mcp_tools_for_skills
+            async with AsyncExitStack() as stack:
+                async with AsyncSessionLocal() as mcp_db:
+                    from sqlalchemy.orm import selectinload
+                    result = await mcp_db.execute(
+                        select(McpServer).options(selectinload(McpServer.tools))
+                    )
+                    servers = list(result.scalars().all())
+                mcp_skills = [n for n in agente_obj.skill_names if n.startswith("mcp:")]
+                mcp_tools = await load_mcp_tools_for_skills(mcp_skills, servers, stack)
+                agent = _build_agent_obj(agente_obj, extra_tools=mcp_tools)
+                final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
+        else:
+            agent = _get_or_build_agent(agente_obj)
+            final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
         if agent.last_state:
             sessions.update(session_id, agent.last_state)
 

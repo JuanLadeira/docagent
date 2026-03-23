@@ -2,7 +2,10 @@
 Router FastAPI para chat, health e session.
 
 O agente e carregado do banco de dados a partir do agent_id da requisicao.
+Agentes com skills MCP (prefixo mcp:) carregam ferramentas via AsyncExitStack.
 """
+from contextlib import AsyncExitStack
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage
@@ -11,11 +14,30 @@ from docagent.agente.services import AgenteServiceDep
 from docagent.agents.configurable_agent import ConfigurableAgent
 from docagent.agents.registry import AgentConfig
 from docagent.dependencies import get_session_manager
+from docagent.mcp_server.services import McpServiceDep, load_mcp_tools_for_skills
 from docagent.schemas.chat import ChatRequest, HealthResponse
 from docagent.services.chat_service import ChatService
 from docagent.session import SessionManager
 
 router = APIRouter()
+
+
+def _mcp_skill_names(skill_names: list[str]) -> list[str]:
+    return [n for n in skill_names if n.startswith("mcp:")]
+
+
+def _build_agent(agente, extra_tools: list | None = None):
+    config = AgentConfig(
+        id=str(agente.id),
+        name=agente.nome,
+        description=agente.descricao,
+        skill_names=agente.skill_names,
+    )
+    return ConfigurableAgent(
+        config,
+        system_prompt_override=agente.system_prompt or None,
+        extra_tools=extra_tools,
+    ).build()
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -27,6 +49,7 @@ def health() -> HealthResponse:
 async def chat(
     request: ChatRequest,
     agente_service: AgenteServiceDep,
+    mcp_service: McpServiceDep,
     sessions: SessionManager = Depends(get_session_manager),
 ) -> StreamingResponse:
     try:
@@ -38,25 +61,26 @@ async def chat(
     if not agente or not agente.ativo:
         raise HTTPException(status_code=404, detail=f"Agente '{request.agent_id}' nao encontrado")
 
-    config = AgentConfig(
-        id=str(agente.id),
-        name=agente.nome,
-        description=agente.descricao,
-        skill_names=agente.skill_names,
-    )
-    agent = ConfigurableAgent(
-        config,
-        system_prompt_override=agente.system_prompt or None,
-    ).build()
+    mcp_skills = _mcp_skill_names(agente.skill_names)
+    stack = AsyncExitStack()
+    mcp_tools = []
 
+    if mcp_skills:
+        servers = await mcp_service.get_all()
+        mcp_tools = await load_mcp_tools_for_skills(mcp_skills, servers, stack)
+
+    agent = _build_agent(agente, extra_tools=mcp_tools)
     service = ChatService(agent, sessions)
+
+    async def managed_stream():
+        async with stack:
+            for chunk in service.stream(request.question, request.session_id):
+                yield chunk
+
     return StreamingResponse(
-        service.stream(request.question, request.session_id),
+        managed_stream(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -64,6 +88,7 @@ async def chat(
 async def chat_sync(
     request: ChatRequest,
     agente_service: AgenteServiceDep,
+    mcp_service: McpServiceDep,
     sessions: SessionManager = Depends(get_session_manager),
 ) -> dict:
     """Endpoint síncrono para integrações externas (n8n, Evolution API, etc).
@@ -77,19 +102,16 @@ async def chat_sync(
     if not agente or not agente.ativo:
         raise HTTPException(status_code=404, detail=f"Agente '{request.agent_id}' nao encontrado")
 
-    config = AgentConfig(
-        id=str(agente.id),
-        name=agente.nome,
-        description=agente.descricao,
-        skill_names=agente.skill_names,
-    )
-    agent = ConfigurableAgent(
-        config,
-        system_prompt_override=agente.system_prompt or None,
-    ).build()
+    mcp_skills = _mcp_skill_names(agente.skill_names)
+    async with AsyncExitStack() as stack:
+        mcp_tools = []
+        if mcp_skills:
+            servers = await mcp_service.get_all()
+            mcp_tools = await load_mcp_tools_for_skills(mcp_skills, servers, stack)
 
-    state = sessions.get(request.session_id)
-    final_state = agent.run(request.question, state)
+        agent = _build_agent(agente, extra_tools=mcp_tools)
+        state = sessions.get(request.session_id)
+        final_state = agent.run(request.question, state)
 
     if agent.last_state is not None:
         sessions.update(request.session_id, agent.last_state)

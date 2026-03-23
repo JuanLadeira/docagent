@@ -42,6 +42,18 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/agentes/novo',
+      name: 'agente-novo',
+      component: () => import('@/views/agentes/AgenteFormView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/agentes/:id/editar',
+      name: 'agente-editar',
+      component: () => import('@/views/agentes/AgenteFormView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/atendimentos',
       name: 'atendimentos',
       component: () => import('@/views/atendimento/AtendimentoView.vue'),
@@ -63,6 +75,12 @@ const router = createRouter({
       path: '/whatsapp',
       name: 'whatsapp',
       component: () => import('@/views/whatsapp/WhatsappView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/mcp-servidores',
+      name: 'mcp-servidores',
+      component: () => import('@/views/McpServidoresView.vue'),
       meta: { requiresAuth: true },
     },
 

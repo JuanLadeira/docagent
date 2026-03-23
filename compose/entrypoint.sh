@@ -14,6 +14,7 @@ from docagent.usuario.models import Usuario, UsuarioRole
 from docagent.agente.models import Agente
 from docagent.whatsapp.models import WhatsappInstancia  # garante que a tabela é registrada no metadata
 from docagent.atendimento.models import Atendimento, MensagemAtendimento, Contato  # noqa
+from docagent.mcp_server.models import McpServer, McpTool  # noqa
 from docagent.auth.security import get_password_hash
 from docagent.settings import Settings
 
@@ -34,25 +35,24 @@ async def main():
             result = await session.execute(select(Usuario).where(Usuario.username == username))
             existing = result.scalar_one_or_none()
             if existing:
-                print(f'[entrypoint] Usuário {username!r} já existe, pulando seed.')
-                return
+                print(f'[entrypoint] Usuário {username!r} já existe, pulando seed de usuário.')
+            else:
+                tenant = Tenant(nome='Admin Tenant', descricao='Tenant padrão')
+                session.add(tenant)
+                await session.flush()
 
-            tenant = Tenant(nome='Admin Tenant', descricao='Tenant padrão')
-            session.add(tenant)
-            await session.flush()
-
-            user = Usuario(
-                username=username,
-                email=f'{username}@docagent.com',
-                password=get_password_hash(password),
-                nome='Administrador',
-                ativo=True,
-                role=UsuarioRole.OWNER,
-                tenant_id=tenant.id,
-            )
-            session.add(user)
-            await session.flush()
-            print(f'[entrypoint] Usuário {username!r} criado (tenant_id={tenant.id}).')
+                user = Usuario(
+                    username=username,
+                    email=f'{username}@docagent.com',
+                    password=get_password_hash(password),
+                    nome='Administrador',
+                    ativo=True,
+                    role=UsuarioRole.OWNER,
+                    tenant_id=tenant.id,
+                )
+                session.add(user)
+                await session.flush()
+                print(f'[entrypoint] Usuário {username!r} criado (tenant_id={tenant.id}).')
 
     # Seed agentes padrão se não existir nenhum
     async with SessionLocal() as session:
@@ -76,6 +76,49 @@ async def main():
                 for a in agentes_padrao:
                     session.add(a)
                 print('[entrypoint] Agentes padrão criados.')
+
+    # Seed servidores MCP de exemplo se não existir nenhum
+    async with SessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(select(McpServer))
+            if not result.scalars().first():
+                servidores_exemplo = [
+                    McpServer(
+                        nome='Fetch',
+                        descricao='Busca e converte o conteúdo de qualquer URL para texto. Requer uvx (uv).',
+                        command='uvx',
+                        args=['mcp-server-fetch'],
+                        env={},
+                        ativo=False,
+                    ),
+                    McpServer(
+                        nome='Memory',
+                        descricao='Grafo de conhecimento persistente: o agente pode salvar e recuperar fatos entre conversas. Requer Node.js.',
+                        command='npx',
+                        args=['-y', '@modelcontextprotocol/server-memory'],
+                        env={},
+                        ativo=False,
+                    ),
+                    McpServer(
+                        nome='Time',
+                        descricao='Fornece data/hora atual e conversão de fusos horários. Requer Node.js.',
+                        command='npx',
+                        args=['-y', '@modelcontextprotocol/server-time'],
+                        env={},
+                        ativo=False,
+                    ),
+                    McpServer(
+                        nome='Puppeteer',
+                        descricao='Automação de browser real: navega páginas, clica, extrai conteúdo e tira screenshots. Requer Node.js e Chromium.',
+                        command='npx',
+                        args=['-y', '@modelcontextprotocol/server-puppeteer'],
+                        env={},
+                        ativo=False,
+                    ),
+                ]
+                for s in servidores_exemplo:
+                    session.add(s)
+                print('[entrypoint] Servidores MCP de exemplo criados (inativos).')
 
 asyncio.run(main())
 "
