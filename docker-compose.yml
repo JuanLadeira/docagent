@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: compose/Dockerfile
-    command: uv run uvicorn docagent.api:app --host 0.0.0.0 --port 8000 --reload
+    command: uv run uvicorn docagent.api:app --host 0.0.0.0 --port 8000 --reload --timeout-graceful-shutdown 3
     ports:
       - "8000:8000"
     env_file: .env
@@ -15,6 +15,9 @@ services:
     volumes:
       - ./data:/app/data
       - ./src:/app/src
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./data/docagent.db:/app/docagent.db
     restart: unless-stopped
 
   ui:
@@ -70,6 +73,9 @@ services:
       DATABASE_SAVE_DATA_CONTACTS: "true"
       DATABASE_SAVE_DATA_CHATS: "true"
       DATABASE_SAVE_DATA_HISTORIC: "true"
+      # Cache: desabilitar Redis (não usado), usar memória local
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy

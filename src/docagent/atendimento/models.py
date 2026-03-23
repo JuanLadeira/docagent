@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Enum, ForeignKey, String, Text
+from sqlalchemy import Enum, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from docagent.database import Base
@@ -16,6 +16,31 @@ class MensagemOrigem(str, enum.Enum):
     CONTATO = "CONTATO"
     AGENTE = "AGENTE"
     OPERADOR = "OPERADOR"
+
+
+class Prioridade(str, enum.Enum):
+    NORMAL = "NORMAL"
+    ALTA = "ALTA"
+    URGENTE = "URGENTE"
+
+
+class Contato(Base):
+    __tablename__ = "contato"
+    __table_args__ = (
+        UniqueConstraint("numero", "tenant_id", "instancia_id", name="uq_contato_numero_tenant_instancia"),
+    )
+
+    numero: Mapped[str] = mapped_column(String(50), nullable=False)
+    nome: Mapped[str] = mapped_column(String(100), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notas: Mapped[str | None] = mapped_column(Text, nullable=True)
+    instancia_id: Mapped[int] = mapped_column(
+        ForeignKey("whatsapp_instancia.id", ondelete="CASCADE"), nullable=False
+    )
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False
+    )
+    atendimentos: Mapped[list["Atendimento"]] = relationship(back_populates="contato")
 
 
 class Atendimento(Base):
@@ -34,6 +59,15 @@ class Atendimento(Base):
         default=AtendimentoStatus.ATIVO,
         nullable=False,
     )
+    prioridade: Mapped[Prioridade] = mapped_column(
+        Enum(Prioridade, name="prioridade"),
+        default=Prioridade.NORMAL,
+        nullable=False,
+    )
+    contato_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contato.id", ondelete="SET NULL"), nullable=True
+    )
+    contato: Mapped["Contato | None"] = relationship(back_populates="atendimentos")
     mensagens: Mapped[list["MensagemAtendimento"]] = relationship(
         back_populates="atendimento",
         cascade="all, delete-orphan",

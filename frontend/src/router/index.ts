@@ -48,6 +48,18 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/contatos',
+      name: 'contatos',
+      component: () => import('@/views/atendimento/ContatoView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/contatos/:id',
+      name: 'contato-detalhe',
+      component: () => import('@/views/atendimento/ContatoDetalheView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/whatsapp',
       name: 'whatsapp',
       component: () => import('@/views/whatsapp/WhatsappView.vue'),

@@ -18,6 +18,7 @@ const navItems = computed(() => {
   ]
   if (auth.isOwner) {
     items.push({ name: 'Atendimentos', path: '/atendimentos', icon: '🎧' })
+    items.push({ name: 'Contatos', path: '/contatos', icon: '👤' })
     items.push({ name: 'WhatsApp', path: '/whatsapp', icon: '📱' })
     items.push({ name: 'Agentes', path: '/agentes', icon: '🤖' })
   }
@@ -60,7 +61,7 @@ const navItems = computed(() => {
           :to="item.path"
           class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors"
           :class="
-            route.path === item.path
+            route.path === item.path || route.path.startsWith(item.path + '/')
               ? 'bg-indigo-600 text-white'
               : 'text-slate-400 hover:text-white hover:bg-slate-700'
           "

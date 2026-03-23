@@ -24,8 +24,9 @@ from sqlalchemy import select
 from docagent.agente.models import Agente
 from docagent.agents.configurable_agent import ConfigurableAgent
 from docagent.agents.registry import AgentConfig
-from docagent.atendimento.models import Atendimento, AtendimentoStatus, MensagemAtendimento, MensagemOrigem
-from docagent.atendimento.sse import atendimento_sse_manager
+from docagent.base_agent import BaseAgent
+from docagent.atendimento.models import Atendimento, AtendimentoStatus, Contato, MensagemAtendimento, MensagemOrigem
+from docagent.atendimento.sse import atendimento_lista_sse_manager, atendimento_sse_manager
 from docagent.auth.current_user import CurrentUser
 from docagent.database import AsyncSessionLocal
 from docagent.dependencies import get_session_manager
@@ -45,6 +46,31 @@ router = APIRouter(
     prefix="/api/whatsapp",
     tags=["WhatsApp"],
 )
+
+# Cache de agentes construídos, keyed por (agente_id, skill_names, system_prompt).
+# Invalida automaticamente quando a configuração do agente muda.
+_agent_cache: dict[tuple, BaseAgent] = {}
+
+
+def _get_or_build_agent(agente_obj: Agente) -> BaseAgent:
+    """Retorna o agente cacheado ou constrói um novo se a config mudou."""
+    cache_key = (
+        agente_obj.id,
+        tuple(agente_obj.skill_names),
+        agente_obj.system_prompt or "",
+    )
+    if cache_key not in _agent_cache:
+        config = AgentConfig(
+            id=str(agente_obj.id),
+            name=agente_obj.nome,
+            description=agente_obj.descricao,
+            skill_names=agente_obj.skill_names,
+        )
+        _agent_cache[cache_key] = ConfigurableAgent(
+            config,
+            system_prompt_override=agente_obj.system_prompt or None,
+        ).build()
+    return _agent_cache[cache_key]
 
 
 async def _get_instancia_or_404(instancia_id: int, current_user: CurrentUser, service: WhatsappServiceDep):
@@ -238,10 +264,13 @@ async def _processar_connection_update(evento: WebhookEvento) -> None:
                     await client.post(
                         f"/webhook/set/{evento.instance}",
                         json={
-                            "url": webhook_url,
-                            "webhook_by_events": False,
-                            "webhook_base64": True,
-                            "events": ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+                            "webhook": {
+                                "url": webhook_url,
+                                "enabled": True,
+                                "byEvents": False,
+                                "base64": False,
+                                "events": ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+                            }
                         },
                     )
             except Exception:
@@ -256,8 +285,37 @@ async def _processar_connection_update(evento: WebhookEvento) -> None:
         pass
 
 
+async def _resolver_lid_para_numero(instance_name: str, lid_jid: str) -> str | None:
+    """Tenta resolver um @lid JID para número de telefone via Evolution API.
+
+    Usa fetchProfilePictureUrl que internamente resolve o JID e retorna o wuid
+    no formato 5511999999@s.whatsapp.net, do qual extraímos o telefone.
+    Retorna None se não conseguir resolver.
+    """
+    try:
+        settings = Settings()
+        async with httpx.AsyncClient(
+            base_url=settings.EVOLUTION_API_URL,
+            headers={"apikey": settings.EVOLUTION_API_KEY},
+            timeout=10.0,
+        ) as client:
+            r = await client.post(
+                f"/chat/fetchProfilePictureUrl/{instance_name}",
+                json={"number": lid_jid},
+            )
+            if r.status_code == 200:
+                wuid = r.json().get("wuid", "")
+                if wuid and "@s.whatsapp.net" in wuid:
+                    return wuid.replace("@s.whatsapp.net", "")
+    except Exception:
+        pass
+    return None
+
+
 async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
     """Recebe mensagem do WhatsApp, gerencia atendimento e executa o agente se ATIVO."""
+    import logging
+    log = logging.getLogger("docagent.webhook")
     try:
         data = evento.data
         key = data.get("key", {})
@@ -268,10 +326,19 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         if "@g.us" in remote_jid:
             return  # ignorar grupos
 
-        # LID = WhatsApp privacy mode (newer accounts): sem número de telefone disponível.
-        # Não é possível enviar para @lid via Evolution API v1.8.x.
-        # Criamos o atendimento mas não acionamos o agente.
+        # LID = WhatsApp privacy mode (newer accounts): sem número de telefone real disponível.
+        # Tentamos resolver via Evolution API. Se resolver, tratamos como número normal.
+        # Se não resolver, criamos o atendimento mas não acionamos o agente.
         is_lid = "@lid" in remote_jid
+        if is_lid:
+            numero_resolvido = await _resolver_lid_para_numero(evento.instance, remote_jid)
+            if numero_resolvido:
+                numero = numero_resolvido
+                is_lid = False
+            else:
+                numero = remote_jid.replace("@lid", "")
+        else:
+            numero = remote_jid.replace("@s.whatsapp.net", "")
 
         conteudo = (
             data.get("message", {}).get("conversation")
@@ -281,7 +348,6 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         if not conteudo:
             return
 
-        numero = remote_jid.replace("@s.whatsapp.net", "").replace("@lid", "")
         session_id = f"whatsapp:{numero}"
 
         # Buscar instância, agente e gerenciar atendimento
@@ -300,6 +366,16 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
                 )
                 agente = agente_result.scalar_one_or_none()
 
+            # Buscar contato vinculado ao número
+            contato_result = await db.execute(
+                select(Contato).where(
+                    Contato.numero == numero,
+                    Contato.tenant_id == instancia.tenant_id,
+                    Contato.instancia_id == instancia.id,
+                )
+            )
+            contato = contato_result.scalar_one_or_none()
+
             # Upsert atendimento
             at_result = await db.execute(
                 select(Atendimento).where(
@@ -309,12 +385,15 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
                 )
             )
             atendimento = at_result.scalar_one_or_none()
+            is_novo = atendimento is None
             if not atendimento:
                 atendimento = Atendimento(
                     numero=numero,
                     instancia_id=instancia.id,
                     tenant_id=instancia.tenant_id,
                     status=AtendimentoStatus.ATIVO,
+                    contato_id=contato.id if contato else None,
+                    nome_contato=contato.nome if contato else None,
                 )
                 db.add(atendimento)
                 await db.flush()
@@ -330,7 +409,21 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
 
             atendimento_id = atendimento.id
             atendimento_status = atendimento.status
+            atendimento_tenant_id = instancia.tenant_id
             agente_obj = agente  # mantém referência antes do commit
+            # Capturar dados para SSE antes do commit
+            at_data = {
+                "id": atendimento.id,
+                "numero": atendimento.numero,
+                "nome_contato": atendimento.nome_contato,
+                "instancia_id": atendimento.instancia_id,
+                "tenant_id": atendimento.tenant_id,
+                "status": atendimento.status.value,
+                "prioridade": atendimento.prioridade.value,
+                "contato_id": atendimento.contato_id,
+                "created_at": atendimento.created_at.isoformat() if atendimento.created_at else None,
+                "updated_at": atendimento.updated_at.isoformat() if atendimento.updated_at else None,
+            }
             await db.commit()
 
         # Broadcast mensagem do contato via SSE
@@ -340,26 +433,24 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
             "conteudo": conteudo,
         })
 
-        # Se operador assumiu, não há agente configurado, ou é contato LID (não é possível
-        # enviar via Evolution API v1.8.x para @lid JIDs), não acionar o agente.
+        # Broadcast lista SSE (novo ou atualizado)
+        event_type = "NOVO_ATENDIMENTO" if is_novo else "ATENDIMENTO_ATUALIZADO"
+        await atendimento_lista_sse_manager.broadcast(atendimento_tenant_id, {
+            "type": event_type,
+            "atendimento": at_data,
+        })
+
+        # Se operador assumiu, não há agente configurado, ou @lid não resolvido, não acionar o agente.
         if atendimento_status == AtendimentoStatus.HUMANO or not agente or is_lid:
             return
 
-        # Executar agente
-        config = AgentConfig(
-            id=str(agente_obj.id),
-            name=agente_obj.nome,
-            description=agente_obj.descricao,
-            skill_names=agente_obj.skill_names,
-        )
-        agent = ConfigurableAgent(
-            config,
-            system_prompt_override=agente_obj.system_prompt or None,
-        ).build()
+        # Executar agente (cache evita rebuild; executor libera o event loop)
+        agent = _get_or_build_agent(agente_obj)
 
         sessions = get_session_manager()
         state = sessions.get(session_id)
-        final_state = agent.run(conteudo, state)
+        loop = asyncio.get_event_loop()
+        final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
         if agent.last_state:
             sessions.update(session_id, agent.last_state)
 
@@ -399,5 +490,5 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
                 f"/message/sendText/{evento.instance}",
                 json={"number": numero, "text": answer},
             )
-    except Exception:
-        pass  # Webhook must always return 200
+    except Exception as e:
+        log.exception("Erro em _processar_mensagem_recebida instance=%s: %s", evento.instance, e)

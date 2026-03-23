@@ -4,9 +4,13 @@ Fase 8 — API FastAPI com arquitetura em camadas.
 Assembly do app: registra routers e configura LangSmith.
 A logica de negocio esta em services/, os endpoints em routers/.
 """
+import asyncio
 import os
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from langchain_core.messages import HumanMessage
+from langchain_ollama import ChatOllama
 
 from docagent.routers.chat import router as chat_router
 from docagent.routers.agents import router as agents_router
@@ -26,7 +30,25 @@ if os.getenv("LANGSMITH_API_KEY"):
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
     os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGSMITH_PROJECT", "docagent")
 
-app = FastAPI(title="DocAgent API", version="3.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Aquece o modelo LLM no startup para eliminar cold start na primeira mensagem."""
+    try:
+        llm = ChatOllama(
+            model=os.getenv("LLM_MODEL", "qwen2.5:7b"),
+            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            temperature=0,
+        )
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, llm.invoke, [HumanMessage(content="olá")])
+        print("[startup] Modelo aquecido.")
+    except Exception as e:
+        print(f"[startup] Warmup falhou (Ollama offline?): {e}")
+    yield
+
+
+app = FastAPI(title="DocAgent API", version="3.0.0", lifespan=lifespan)
 
 # RAG + Agentes
 app.include_router(chat_router)
