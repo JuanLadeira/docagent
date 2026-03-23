@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.orm import selectinload
 
-from docagent.auth.current_user import CurrentUser
+from docagent.auth.current_user import CurrentOwner, CurrentUser
 from docagent.mcp_server.schemas import (
     McpServerCreate,
     McpServerPublic,
@@ -24,11 +24,9 @@ async def listar_servidores(
 @router.post("", response_model=McpServerPublic, status_code=status.HTTP_201_CREATED)
 async def criar_servidor(
     data: McpServerCreate,
-    current_user: CurrentUser,
+    current_user: CurrentOwner,
     service: McpServiceDep,
 ):
-    if current_user.role != "OWNER":
-        raise HTTPException(status_code=403, detail="Apenas OWNER pode registrar servidores MCP")
     return await service.create(data)
 
 
@@ -36,11 +34,9 @@ async def criar_servidor(
 async def atualizar_servidor(
     server_id: int,
     data: McpServerUpdate,
-    current_user: CurrentUser,
+    current_user: CurrentOwner,
     service: McpServiceDep,
 ):
-    if current_user.role != "OWNER":
-        raise HTTPException(status_code=403, detail="Apenas OWNER pode editar servidores MCP")
     server = await service.update(server_id, data)
     if not server:
         raise HTTPException(status_code=404, detail="Servidor MCP não encontrado")
@@ -50,11 +46,9 @@ async def atualizar_servidor(
 @router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deletar_servidor(
     server_id: int,
-    current_user: CurrentUser,
+    current_user: CurrentOwner,
     service: McpServiceDep,
 ):
-    if current_user.role != "OWNER":
-        raise HTTPException(status_code=403, detail="Apenas OWNER pode remover servidores MCP")
     deleted = await service.delete(server_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Servidor MCP não encontrado")
@@ -63,11 +57,9 @@ async def deletar_servidor(
 @router.post("/{server_id}/descobrir-tools", response_model=list[McpToolPublic])
 async def descobrir_tools(
     server_id: int,
-    current_user: CurrentUser,
+    current_user: CurrentOwner,
     service: McpServiceDep,
 ):
-    if current_user.role != "OWNER":
-        raise HTTPException(status_code=403, detail="Apenas OWNER pode descobrir tools MCP")
     try:
         tools = await service.descobrir_tools(server_id)
         return tools
