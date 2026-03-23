@@ -27,19 +27,22 @@ class ConfigurableAgent(BaseAgent):
         config: AgentConfig,
         session_collection: str | None = None,
         system_prompt_override: str | None = None,
+        extra_tools: list | None = None,
     ):
         super().__init__()
         self._config = config
         self._session_collection = session_collection
         self._system_prompt_override = system_prompt_override
+        self._extra_tools = extra_tools or []
 
     @property
     def tools(self) -> list:
-        return [
+        built_in = [
             SKILL_REGISTRY[name].as_tool()
             for name in self._config.skill_names
             if name in SKILL_REGISTRY
         ]
+        return built_in + self._extra_tools
 
     @property
     def system_prompt(self) -> str:

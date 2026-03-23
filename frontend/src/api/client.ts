@@ -138,6 +138,33 @@ export interface ContatoUpdate {
 
 // ── Endpoints ────────────────────────────────────────────────────────────────
 
+export interface McpTool {
+  id: number
+  server_id: number
+  tool_name: string
+  description: string
+}
+
+export interface McpServer {
+  id: number
+  nome: string
+  descricao: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+  ativo: boolean
+  tools: McpTool[]
+}
+
+export interface McpServerCreate {
+  nome: string
+  descricao: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+  ativo: boolean
+}
+
 export const api = {
   login: (username: string, password: string) =>
     axios.post<{ access_token: string; token_type: string }>(
@@ -181,6 +208,15 @@ export const api = {
   getContato: (id: number) => apiClient.get<ContatoDetalhe>(`/atendimentos/contatos/${id}`),
   atualizarContato: (id: number, data: ContatoUpdate) =>
     apiClient.patch<Contato>(`/atendimentos/contatos/${id}`, data),
+
+  // MCP Servidores
+  listMcpServidores: () => apiClient.get<McpServer[]>('/mcp-servidores'),
+  createMcpServidor: (data: McpServerCreate) => apiClient.post<McpServer>('/mcp-servidores', data),
+  updateMcpServidor: (id: number, data: Partial<McpServerCreate>) =>
+    apiClient.put<McpServer>(`/mcp-servidores/${id}`, data),
+  deleteMcpServidor: (id: number) => apiClient.delete(`/mcp-servidores/${id}`),
+  descobrirTools: (id: number) => apiClient.post<McpTool[]>(`/mcp-servidores/${id}/descobrir-tools`),
+  listMcpTools: (id: number) => apiClient.get<McpTool[]>(`/mcp-servidores/${id}/tools`),
 
   // WhatsApp
   listInstancias: () => apiClient.get<WhatsappInstancia[]>('/whatsapp/instancias'),

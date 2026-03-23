@@ -14,6 +14,7 @@ from docagent.usuario.models import Usuario, UsuarioRole
 from docagent.agente.models import Agente
 from docagent.whatsapp.models import WhatsappInstancia  # garante que a tabela é registrada no metadata
 from docagent.atendimento.models import Atendimento, MensagemAtendimento, Contato  # noqa
+from docagent.mcp_server.models import McpServer, McpTool  # noqa
 from docagent.auth.security import get_password_hash
 from docagent.settings import Settings
 

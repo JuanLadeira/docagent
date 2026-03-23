@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { api, type Agente, type AgenteCreate } from '@/api/client'
+import { api, type Agente, type AgenteCreate, type McpServer } from '@/api/client'
 import { useAgentsStore } from '@/stores/agents'
 
 const agentsStore = useAgentsStore()
@@ -9,6 +9,29 @@ const AVAILABLE_SKILLS = [
   { key: 'rag_search', label: 'Busca em Documentos', icon: '🔍', description: 'Busca semântica nos PDFs carregados' },
   { key: 'web_search', label: 'Busca na Web', icon: '🌐', description: 'Busca informações na internet via DuckDuckGo' },
 ]
+
+const mcpServidores = ref<McpServer[]>([])
+
+async function carregarMcpServidores() {
+  try {
+    const r = await api.listMcpServidores()
+    mcpServidores.value = r.data.filter(s => s.ativo && s.tools.length > 0)
+  } catch {
+    // silencioso — MCP é opcional
+  }
+}
+
+function mcpSkillKey(serverId: number, toolName: string) {
+  return `mcp:${serverId}:${toolName}`
+}
+
+function labelMcpSkill(key: string) {
+  const parts = key.split(':')
+  if (parts.length !== 3) return key
+  const [, sid, toolName] = parts
+  const server = mcpServidores.value.find(s => String(s.id) === sid)
+  return server ? `${server.nome} / ${toolName}` : key
+}
 
 const agentes = ref<Agente[]>([])
 const loading = ref(false)
@@ -100,7 +123,10 @@ async function remove(id: number) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  carregarMcpServidores()
+})
 </script>
 
 <template>
@@ -153,8 +179,13 @@ onMounted(load)
               :key="skill"
               class="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-xs rounded font-medium"
             >
-              {{ AVAILABLE_SKILLS.find(s => s.key === skill)?.icon }}
-              {{ AVAILABLE_SKILLS.find(s => s.key === skill)?.label ?? skill }}
+              <template v-if="skill.startsWith('mcp:')">
+                🔌 {{ labelMcpSkill(skill) }}
+              </template>
+              <template v-else>
+                {{ AVAILABLE_SKILLS.find(s => s.key === skill)?.icon }}
+                {{ AVAILABLE_SKILLS.find(s => s.key === skill)?.label ?? skill }}
+              </template>
             </span>
           </div>
           <p v-if="agente.system_prompt" class="text-slate-400 text-xs mt-2 italic truncate">
@@ -216,6 +247,7 @@ onMounted(load)
           <div>
             <label class="block text-slate-500 text-sm mb-2">Skills</label>
             <div class="space-y-2">
+              <!-- Skills nativas -->
               <label
                 v-for="skill in AVAILABLE_SKILLS"
                 :key="skill.key"
@@ -235,6 +267,30 @@ onMounted(load)
                   <div class="text-xs text-slate-400">{{ skill.description }}</div>
                 </div>
               </label>
+
+              <!-- Skills MCP por servidor -->
+              <template v-for="server in mcpServidores" :key="`mcp-${server.id}`">
+                <div class="text-xs font-medium text-slate-400 pt-1">MCP: {{ server.nome }}</div>
+                <label
+                  v-for="tool in server.tools"
+                  :key="mcpSkillKey(server.id, tool.tool_name)"
+                  class="flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors"
+                  :class="form.skill_names.includes(mcpSkillKey(server.id, tool.tool_name))
+                    ? 'border-indigo-400 bg-indigo-50'
+                    : 'border-slate-200 hover:border-slate-300'"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="form.skill_names.includes(mcpSkillKey(server.id, tool.tool_name))"
+                    @change="toggleSkill(mcpSkillKey(server.id, tool.tool_name))"
+                    class="mt-0.5 accent-indigo-600"
+                  />
+                  <div>
+                    <div class="text-sm font-medium text-slate-700 font-mono">{{ tool.tool_name }}</div>
+                    <div class="text-xs text-slate-400">{{ tool.description }}</div>
+                  </div>
+                </label>
+              </template>
             </div>
           </div>
 

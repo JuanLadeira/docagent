@@ -26,6 +26,8 @@ dependencies = [
     "pwdlib[argon2]>=0.3.0",
     "pydantic[email]>=2.12.5",
     "pyjwt>=2.12.1",
+    "mcp>=1.26.0",
+    "langchain-mcp-adapters>=0.2.2",
 ]
 
 [build-system]

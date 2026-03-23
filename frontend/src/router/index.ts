@@ -65,6 +65,12 @@ const router = createRouter({
       component: () => import('@/views/whatsapp/WhatsappView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/mcp-servidores',
+      name: 'mcp-servidores',
+      component: () => import('@/views/McpServidoresView.vue'),
+      meta: { requiresAuth: true },
+    },
 
     // Admin
     {
