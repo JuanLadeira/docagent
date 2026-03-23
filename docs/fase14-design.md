@@ -1,6 +1,168 @@
-# Fase 14 — Design: Redução de Latência do Agente WhatsApp
+# Fase 14 — Design: Atendimentos em Tempo Real, Módulo Contatos e Otimizações de Latência
 
-## Problema
+## Visão Geral
+
+Esta fase entregou três conjuntos de melhorias independentes:
+
+1. **Atendimentos em tempo real** — substituiu polling por SSE com reconexão automática
+2. **Módulo Contatos** — cadastro de contatos vinculado ao histórico de atendimentos
+3. **Otimizações de latência** — eliminou overhead desnecessário no pipeline de resposta do agente
+
+---
+
+## Parte 1 — Atendimentos em Tempo Real (SSE)
+
+### Problema
+
+A tela de atendimentos usava `setInterval` para consultar a API a cada poucos segundos. Isso gerava:
+
+- Atraso de até N segundos entre um evento (nova mensagem, mudança de status) e a atualização visual
+- Requisições constantes mesmo sem nenhuma mudança (desperdício)
+- Falsa impressão de "dados sumidos" quando a API reiniciava e o polling retornava lista vazia momentaneamente
+
+### Solução
+
+**SSE (Server-Sent Events) tenant-level** — um stream persistente por operador logado, que recebe eventos push do servidor assim que acontecem.
+
+```
+Operador abre a tela
+     │
+     └─ GET /api/atendimentos/eventos (SSE, mantém conexão aberta)
+          │
+          ├─ NOVO_ATENDIMENTO      → insere no topo da lista
+          ├─ ATENDIMENTO_ATUALIZADO → atualiza status/prioridade na lista
+          └─ ping (30s)            → keepalive para proxies
+```
+
+**Reconexão automática com backoff exponencial** — se a API reiniciar ou a conexão cair, o frontend tenta reconectar automaticamente: 2s → 4s → 8s → 16s → 30s. Ao reconectar, recarrega a lista completa para recuperar eventos perdidos durante a queda.
+
+**Banner de status** — enquanto o SSE não está conectado, a lista exibe:
+- Amarelo "Conectando..." na primeira conexão
+- Vermelho "Reconectando..." após queda
+
+### Arquitetura SSE
+
+**Backend (`src/docagent/atendimento/sse.py`)**
+
+Dois gerenciadores de filas:
+- `AtendimentoSseManager` — por `atendimento_id` (mensagens em tempo real na conversa)
+- `AtendimentoListaSseManager` — por `tenant_id` (eventos de lista para todos os operadores do tenant)
+
+**Frontend (`frontend/src/api/client.ts`)**
+
+`subscribeAtendimentoLista(onEvent, onStatus)`:
+- Usa `fetch + ReadableStream` (EventSource nativo não suporta header `Authorization`)
+- Loop de reconexão interno com backoff
+- Callback `onStatus('connecting' | 'connected' | 'disconnected')` para o componente reagir
+
+### Trade-offs
+
+| | |
+|---|---|
+| **Benefício** | Atualizações instantâneas, zero polling, UX fluida mesmo em alta volumetria |
+| **Custo** | Uma conexão HTTP persistente por operador logado |
+| **Reconexão** | Backoff até 30s — aceitável; evento perdido durante queda é recuperado com refetch |
+| **uvicorn reload** | SSE connections longas impediam reload gracioso → `--timeout-graceful-shutdown 3` resolve |
+
+### Arquivos Modificados
+
+| Arquivo | Mudança |
+|---|---|
+| `src/docagent/atendimento/sse.py` | `AtendimentoListaSseManager` (broadcast por tenant) |
+| `src/docagent/atendimento/router.py` | `GET /api/atendimentos/eventos` + broadcasts em assumir/devolver/encerrar |
+| `src/docagent/whatsapp/router.py` | Emite SSE ao criar atendimento via webhook |
+| `frontend/src/api/client.ts` | `subscribeAtendimentoLista` com reconexão e `onStatus` |
+| `frontend/src/views/atendimento/AtendimentoView.vue` | Remove polling, adiciona banner de status SSE, abas Ativos/Histórico |
+| `docker-compose.yml` | `--timeout-graceful-shutdown 3` no comando uvicorn |
+
+---
+
+## Parte 2 — Módulo Contatos
+
+### Problema
+
+Os atendimentos exibiam apenas o número de telefone do contato — sem nome, sem histórico unificado, sem forma de saber quem era a pessoa do outro lado. Operadores precisavam decorar números.
+
+### Solução
+
+Modelo `Contato` com vínculo explícito a atendimentos, auto-linking retroativo e telas dedicadas.
+
+### Modelo de Dados
+
+```
+Contato
+├─ id
+├─ numero          (e.g. "5511999999999")
+├─ instancia_id    (FK → WhatsappInstancia)
+├─ tenant_id       (FK → Tenant)
+├─ nome
+├─ email           (opcional)
+├─ notas           (opcional)
+└─ UniqueConstraint(numero, instancia_id, tenant_id)
+
+Atendimento
+├─ ...
+├─ contato_id      (FK → Contato, nullable)
+├─ nome_contato    (desnormalizado para exibição rápida)
+└─ prioridade      (NORMAL | ALTA | URGENTE)
+```
+
+`nome_contato` é desnormalizado intencionalmente: permite exibir o nome na lista sem JOIN, e reflete o nome no momento do atendimento mesmo se o contato for renomeado depois.
+
+### Fluxo: Criar Contato
+
+```
+Operador clica "+ Adicionar contato" no atendimento
+     │
+     └─ POST /api/atendimentos/contatos { numero, nome, email, notas, instancia_id }
+          │
+          ├─ Cria Contato
+          ├─ Busca todos atendimentos do mesmo número+instância sem contato_id
+          ├─ Seta contato_id e nome_contato em cada um (backfill retroativo)
+          └─ Emite SSE ATENDIMENTO_ATUALIZADO para cada atendimento atualizado
+```
+
+### Fluxo: Webhook recebe mensagem de número já cadastrado
+
+```
+Mensagem chega → webhook busca Contato pelo número+instância
+     │
+     ├─ Encontrou → Atendimento criado com contato_id + nome_contato preenchidos
+     └─ Não encontrou → Atendimento criado com contato_id=None, nome_contato=None
+```
+
+### UX
+
+- **Lista de atendimentos**: nome do contato como texto principal (bold), número como texto secundário cinza abaixo
+- **Cabeçalho do atendimento**: nome em destaque + chip "Ver contato →" indigo ao lado; número como texto secundário
+- **ContatoView**: lista de contatos com busca por nome ou número
+- **ContatoDetalheView**: ficha do contato (nome, email, notas editáveis) + histórico completo de atendimentos
+
+### Migration Alembic
+
+`alembic/versions/b2c3d4e5f6a7_add_contato.py`
+
+Nota técnica: SQLite não suporta `ADD COLUMN ... REFERENCES` via `ALTER TABLE`. A foreign key `contato_id → contato.id` é declarada apenas no ORM (SQLAlchemy), não na migration DDL.
+
+### Arquivos Modificados
+
+| Arquivo | Mudança |
+|---|---|
+| `src/docagent/atendimento/models.py` | `Contato`, `Prioridade`, relação `contato` em `Atendimento` |
+| `src/docagent/atendimento/schemas.py` | `ContatoCreate/Update/Public/Detalhe`, campos `contato_id`/`prioridade` |
+| `src/docagent/atendimento/router.py` | CRUD `/contatos`, rota `/contatos/{id}` antes de `/{atendimento_id}` |
+| `alembic/versions/b2c3d4e5f6a7_add_contato.py` | Migration: tabela `contato` + colunas |
+| `frontend/src/api/client.ts` | Tipos `Contato*` + métodos `criarContato`, `listContatos`, `getContato`, `atualizarContato` |
+| `frontend/src/views/atendimento/ContatoView.vue` | Lista de contatos com busca |
+| `frontend/src/views/atendimento/ContatoDetalheView.vue` | Ficha + histórico |
+| `frontend/src/router/index.ts` | Rotas `/contatos` e `/contatos/:id` |
+| `frontend/src/App.vue` | Item "Contatos" na nav (visível para owner) |
+
+---
+
+## Parte 3 — Otimizações de Latência do Agente WhatsApp
+
+### Problema
 
 Quando uma mensagem WhatsApp chega ao sistema, o agente demora para responder. O delay acumulado tem três causas distintas:
 
@@ -171,14 +333,14 @@ agent = _get_or_build_agent(agente_obj)  # substitui as 6 linhas de build inline
 
 ---
 
-## Arquivos Modificados
+### Arquivos Modificados (Parte 3)
 
 | Arquivo | Mudança |
 |---|---|
 | `src/docagent/api.py` | `lifespan` context manager com warmup do LLM no startup |
 | `src/docagent/whatsapp/router.py` | `_agent_cache` + `_get_or_build_agent()` + `run_in_executor` |
 
-## Impacto Combinado
+### Impacto Combinado
 
 ```
 Antes:  primeira msg = 15-25s  │  msgs seguintes = 3-8s  │  event loop bloqueado
@@ -188,7 +350,26 @@ Depois: primeira msg = 3-8s    │  msgs seguintes = 3-8s  │  event loop livre
 
 O tempo de inferência do LLM em si não muda — isso dependeria de modelo mais rápido ou GPU mais potente. O que muda é eliminar o overhead desnecessário ao redor da inferência.
 
+---
+
 ## Verificação
+
+### SSE e Contatos
+
+```bash
+# 1. Abrir a tela de atendimentos e reiniciar a API
+docker compose restart api
+# Esperado: banner "Reconectando..." aparece na lista, some após reconexão
+# Esperado: lista recarregada automaticamente, dados não "somem"
+
+# 2. Criar um contato via "+ Adicionar contato"
+# Esperado: nome aparece imediatamente no cabeçalho e na lista (via SSE ATENDIMENTO_ATUALIZADO)
+
+# 3. Enviar mensagem de um número já cadastrado como contato
+# Esperado: atendimento criado com nome_contato preenchido desde o início
+```
+
+### Latência do Agente
 
 ```bash
 # 1. Reiniciar o container e observar o warmup nos logs
