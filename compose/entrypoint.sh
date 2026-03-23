@@ -35,25 +35,24 @@ async def main():
             result = await session.execute(select(Usuario).where(Usuario.username == username))
             existing = result.scalar_one_or_none()
             if existing:
-                print(f'[entrypoint] Usuário {username!r} já existe, pulando seed.')
-                return
+                print(f'[entrypoint] Usuário {username!r} já existe, pulando seed de usuário.')
+            else:
+                tenant = Tenant(nome='Admin Tenant', descricao='Tenant padrão')
+                session.add(tenant)
+                await session.flush()
 
-            tenant = Tenant(nome='Admin Tenant', descricao='Tenant padrão')
-            session.add(tenant)
-            await session.flush()
-
-            user = Usuario(
-                username=username,
-                email=f'{username}@docagent.com',
-                password=get_password_hash(password),
-                nome='Administrador',
-                ativo=True,
-                role=UsuarioRole.OWNER,
-                tenant_id=tenant.id,
-            )
-            session.add(user)
-            await session.flush()
-            print(f'[entrypoint] Usuário {username!r} criado (tenant_id={tenant.id}).')
+                user = Usuario(
+                    username=username,
+                    email=f'{username}@docagent.com',
+                    password=get_password_hash(password),
+                    nome='Administrador',
+                    ativo=True,
+                    role=UsuarioRole.OWNER,
+                    tenant_id=tenant.id,
+                )
+                session.add(user)
+                await session.flush()
+                print(f'[entrypoint] Usuário {username!r} criado (tenant_id={tenant.id}).')
 
     # Seed agentes padrão se não existir nenhum
     async with SessionLocal() as session:
