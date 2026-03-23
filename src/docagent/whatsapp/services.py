@@ -33,8 +33,9 @@ class WhatsappService:
                 "qrcode": True,
                 "webhook": {
                     "url": webhook_url,
+                    "enabled": True,
                     "byEvents": False,
-                    "base64": True,
+                    "base64": False,
                     "events": ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
                 },
             },

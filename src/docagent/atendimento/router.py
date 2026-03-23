@@ -3,18 +3,25 @@ import json
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
-from docagent.atendimento.models import AtendimentoStatus
+from docagent.atendimento.models import Atendimento, AtendimentoStatus, Contato
 from docagent.atendimento.schemas import (
     AtendimentoCreate,
     AtendimentoDetalhe,
     AtendimentoPublic,
+    ContatoCreate,
+    ContatoDetalhe,
+    ContatoPublic,
+    ContatoUpdate,
     MensagemPublic,
     OperadorMensagemRequest,
 )
 from docagent.atendimento.services import AtendimentoServiceDep
-from docagent.atendimento.sse import atendimento_sse_manager
+from docagent.atendimento.sse import atendimento_lista_sse_manager, atendimento_sse_manager
 from docagent.auth.current_user import CurrentUser
+from docagent.database import AsyncDBSession
 
 router = APIRouter(
     prefix="/api/atendimentos",
@@ -28,6 +35,135 @@ async def _get_atendimento_or_404(atendimento_id: int, current_user: CurrentUser
         raise HTTPException(status_code=404, detail="Atendimento não encontrado")
     return atendimento
 
+
+# ── SSE: lista de atendimentos (tenant-nível) ─────────────────────────────────
+# IMPORTANTE: rotas literais (/eventos, /contatos) devem vir ANTES de /{id}
+
+@router.get("/eventos")
+async def eventos_lista(current_user: CurrentUser):
+    """Stream SSE de novos atendimentos e mudanças de status (para a lista)."""
+    async def generate():
+        queue = await atendimento_lista_sse_manager.subscribe(current_user.tenant_id)
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    yield 'data: {"type":"ping"}\n\n'
+        finally:
+            atendimento_lista_sse_manager.unsubscribe(current_user.tenant_id, queue)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── CRUD de contatos ──────────────────────────────────────────────────────────
+# Devem vir antes de /{atendimento_id} para evitar conflito de rota
+
+@router.post("/contatos", response_model=ContatoPublic, status_code=status.HTTP_201_CREATED)
+async def criar_contato(
+    data: ContatoCreate,
+    current_user: CurrentUser,
+    session: AsyncDBSession,
+):
+    contato = Contato(
+        numero=data.numero,
+        nome=data.nome,
+        email=data.email,
+        notas=data.notas,
+        instancia_id=data.instancia_id,
+        tenant_id=current_user.tenant_id,
+    )
+    session.add(contato)
+    await session.flush()
+    await session.refresh(contato)
+
+    # Vincular atendimentos existentes desse número à instância
+    result = await session.execute(
+        select(Atendimento).where(
+            Atendimento.numero == data.numero,
+            Atendimento.instancia_id == data.instancia_id,
+            Atendimento.tenant_id == current_user.tenant_id,
+            Atendimento.contato_id.is_(None),
+        )
+    )
+    atendimentos_vinculados = result.scalars().all()
+    for at in atendimentos_vinculados:
+        at.contato_id = contato.id
+        at.nome_contato = contato.nome
+
+    # Não chamar session.commit() aqui — o get_db faz o commit via session.begin()
+    await session.flush()
+
+    # Notificar frontend via SSE para atualizar nome na lista
+    for at in atendimentos_vinculados:
+        at_public = AtendimentoPublic.model_validate(at)
+        await atendimento_lista_sse_manager.broadcast(current_user.tenant_id, {
+            "type": "ATENDIMENTO_ATUALIZADO",
+            "atendimento": at_public.model_dump(mode="json"),
+        })
+
+    return contato
+
+
+@router.get("/contatos", response_model=list[ContatoPublic])
+async def listar_contatos(
+    current_user: CurrentUser,
+    session: AsyncDBSession,
+):
+    result = await session.execute(
+        select(Contato).where(Contato.tenant_id == current_user.tenant_id)
+    )
+    return list(result.scalars().all())
+
+
+@router.get("/contatos/{contato_id}", response_model=ContatoDetalhe)
+async def obter_contato(
+    contato_id: int,
+    current_user: CurrentUser,
+    session: AsyncDBSession,
+):
+    result = await session.execute(
+        select(Contato)
+        .options(selectinload(Contato.atendimentos))
+        .where(Contato.id == contato_id, Contato.tenant_id == current_user.tenant_id)
+    )
+    contato = result.scalar_one_or_none()
+    if not contato:
+        raise HTTPException(status_code=404, detail="Contato não encontrado")
+    return contato
+
+
+@router.patch("/contatos/{contato_id}", response_model=ContatoPublic)
+async def atualizar_contato(
+    contato_id: int,
+    data: ContatoUpdate,
+    current_user: CurrentUser,
+    session: AsyncDBSession,
+):
+    result = await session.execute(
+        select(Contato).where(Contato.id == contato_id, Contato.tenant_id == current_user.tenant_id)
+    )
+    contato = result.scalar_one_or_none()
+    if not contato:
+        raise HTTPException(status_code=404, detail="Contato não encontrado")
+
+    if data.nome is not None:
+        contato.nome = data.nome
+    if data.email is not None:
+        contato.email = data.email
+    if data.notas is not None:
+        contato.notas = data.notas
+
+    await session.flush()
+    return contato
+
+
+# ── CRUD de atendimentos ──────────────────────────────────────────────────────
 
 @router.post("", response_model=AtendimentoPublic, status_code=status.HTTP_201_CREATED)
 async def criar_atendimento(
@@ -45,6 +181,11 @@ async def criar_atendimento(
             "conteudo": msg.conteudo,
             "created_at": msg.created_at.isoformat(),
         })
+    at_public = AtendimentoPublic.model_validate(atendimento)
+    await atendimento_lista_sse_manager.broadcast(current_user.tenant_id, {
+        "type": "NOVO_ATENDIMENTO",
+        "atendimento": at_public.model_dump(mode="json"),
+    })
     return atendimento
 
 
@@ -74,7 +215,13 @@ async def assumir_atendimento(
     service: AtendimentoServiceDep,
 ):
     atendimento = await _get_atendimento_or_404(atendimento_id, current_user, service)
-    return await service.assumir(atendimento)
+    atendimento = await service.assumir(atendimento)
+    at_public = AtendimentoPublic.model_validate(atendimento)
+    await atendimento_lista_sse_manager.broadcast(current_user.tenant_id, {
+        "type": "ATENDIMENTO_ATUALIZADO",
+        "atendimento": at_public.model_dump(mode="json"),
+    })
+    return atendimento
 
 
 @router.post("/{atendimento_id}/devolver", response_model=AtendimentoPublic)
@@ -84,7 +231,13 @@ async def devolver_atendimento(
     service: AtendimentoServiceDep,
 ):
     atendimento = await _get_atendimento_or_404(atendimento_id, current_user, service)
-    return await service.devolver(atendimento)
+    atendimento = await service.devolver(atendimento)
+    at_public = AtendimentoPublic.model_validate(atendimento)
+    await atendimento_lista_sse_manager.broadcast(current_user.tenant_id, {
+        "type": "ATENDIMENTO_ATUALIZADO",
+        "atendimento": at_public.model_dump(mode="json"),
+    })
+    return atendimento
 
 
 @router.post("/{atendimento_id}/encerrar", response_model=AtendimentoPublic)
@@ -94,7 +247,13 @@ async def encerrar_atendimento(
     service: AtendimentoServiceDep,
 ):
     atendimento = await _get_atendimento_or_404(atendimento_id, current_user, service)
-    return await service.encerrar(atendimento)
+    atendimento = await service.encerrar(atendimento)
+    at_public = AtendimentoPublic.model_validate(atendimento)
+    await atendimento_lista_sse_manager.broadcast(current_user.tenant_id, {
+        "type": "ATENDIMENTO_ATUALIZADO",
+        "atendimento": at_public.model_dump(mode="json"),
+    })
+    return atendimento
 
 
 @router.post(

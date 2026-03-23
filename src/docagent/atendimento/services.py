@@ -129,10 +129,13 @@ class AtendimentoService:
         if mensagem_inicial:
             instancia = await self.session.get(WhatsappInstancia, instancia_id)
             if instancia:
-                await self.client.post(
-                    f"/message/sendText/{instancia.instance_name}",
-                    json={"number": numero, "text": mensagem_inicial},
-                )
+                try:
+                    await self.client.post(
+                        f"/message/sendText/{instancia.instance_name}",
+                        json={"number": numero, "text": mensagem_inicial},
+                    )
+                except Exception:
+                    pass  # falha no envio não impede criação do atendimento
             msg = await self.salvar_mensagem(atendimento.id, MensagemOrigem.OPERADOR, mensagem_inicial)
 
         return atendimento, msg
@@ -149,10 +152,13 @@ class AtendimentoService:
         # Busca instance_name da instância vinculada
         instancia = await self.session.get(WhatsappInstancia, atendimento.instancia_id)
         if instancia:
-            await self.client.post(
-                f"/message/sendText/{instancia.instance_name}",
-                json={"number": atendimento.numero, "text": conteudo},
-            )
+            try:
+                await self.client.post(
+                    f"/message/sendText/{instancia.instance_name}",
+                    json={"number": atendimento.numero, "text": conteudo},
+                )
+            except Exception:
+                pass  # falha no envio não impede salvar a mensagem
 
         return await self.salvar_mensagem(atendimento.id, MensagemOrigem.OPERADOR, conteudo)
 

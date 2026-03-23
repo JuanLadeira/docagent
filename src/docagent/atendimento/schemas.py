@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from docagent.atendimento.models import AtendimentoStatus, MensagemOrigem
+from docagent.atendimento.models import AtendimentoStatus, MensagemOrigem, Prioridade
 
 
 class MensagemPublic(BaseModel):
@@ -21,6 +21,8 @@ class AtendimentoPublic(BaseModel):
     instancia_id: int
     tenant_id: int
     status: AtendimentoStatus
+    prioridade: Prioridade
+    contato_id: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -39,3 +41,35 @@ class AtendimentoCreate(BaseModel):
     instancia_id: int
     numero: str
     mensagem_inicial: str | None = None
+
+
+class ContatoCreate(BaseModel):
+    numero: str
+    nome: str
+    email: str | None = None
+    notas: str | None = None
+    instancia_id: int
+
+
+class ContatoUpdate(BaseModel):
+    nome: str | None = None
+    email: str | None = None
+    notas: str | None = None
+
+
+class ContatoPublic(BaseModel):
+    id: int
+    numero: str
+    nome: str
+    email: str | None
+    notas: str | None
+    instancia_id: int
+    tenant_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ContatoDetalhe(ContatoPublic):
+    atendimentos: list[AtendimentoPublic] = []

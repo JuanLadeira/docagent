@@ -12,7 +12,7 @@ async def get_evolution_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     async with httpx.AsyncClient(
         base_url=settings.EVOLUTION_API_URL,
         headers={"apikey": settings.EVOLUTION_API_KEY},
-        timeout=30.0,
+        timeout=60.0,
     ) as client:
         yield client
 

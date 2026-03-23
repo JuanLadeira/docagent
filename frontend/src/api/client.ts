@@ -80,6 +80,7 @@ export interface InstanciaCreate {
 
 export type AtendimentoStatus = 'ATIVO' | 'HUMANO' | 'ENCERRADO'
 export type MensagemOrigem = 'CONTATO' | 'AGENTE' | 'OPERADOR'
+export type Prioridade = 'NORMAL' | 'ALTA' | 'URGENTE'
 
 export interface MensagemAtendimento {
   id: number
@@ -95,12 +96,44 @@ export interface Atendimento {
   instancia_id: number
   tenant_id: number
   status: AtendimentoStatus
+  prioridade: Prioridade
+  contato_id: number | null
   created_at: string
   updated_at: string
 }
 
 export interface AtendimentoDetalhe extends Atendimento {
   mensagens: MensagemAtendimento[]
+}
+
+export interface Contato {
+  id: number
+  numero: string
+  nome: string
+  email: string | null
+  notas: string | null
+  instancia_id: number
+  tenant_id: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ContatoDetalhe extends Contato {
+  atendimentos: Atendimento[]
+}
+
+export interface ContatoCreate {
+  numero: string
+  nome: string
+  email?: string | null
+  notas?: string | null
+  instancia_id: number
+}
+
+export interface ContatoUpdate {
+  nome?: string
+  email?: string | null
+  notas?: string | null
 }
 
 // ── Endpoints ────────────────────────────────────────────────────────────────
@@ -141,6 +174,13 @@ export const api = {
   encerrarAtendimento: (id: number) => apiClient.post<Atendimento>(`/atendimentos/${id}/encerrar`),
   enviarMensagemOperador: (id: number, conteudo: string) =>
     apiClient.post<MensagemAtendimento>(`/atendimentos/${id}/mensagens`, { conteudo }),
+
+  // Contatos
+  criarContato: (data: ContatoCreate) => apiClient.post<Contato>('/atendimentos/contatos', data),
+  listContatos: () => apiClient.get<Contato[]>('/atendimentos/contatos'),
+  getContato: (id: number) => apiClient.get<ContatoDetalhe>(`/atendimentos/contatos/${id}`),
+  atualizarContato: (id: number, data: ContatoUpdate) =>
+    apiClient.patch<Contato>(`/atendimentos/contatos/${id}`, data),
 
   // WhatsApp
   listInstancias: () => apiClient.get<WhatsappInstancia[]>('/whatsapp/instancias'),
@@ -198,6 +238,67 @@ export function subscribeInstanciaEventos(
   return () => {
     cancelled = true
   }
+}
+
+export type SseStatus = 'connecting' | 'connected' | 'disconnected'
+
+/**
+ * Subscreve eventos SSE da lista de atendimentos do tenant (NOVO_ATENDIMENTO, ATENDIMENTO_ATUALIZADO).
+ * Reconecta automaticamente com backoff exponencial se a conexão cair.
+ */
+export function subscribeAtendimentoLista(
+  onEvent: (event: { type: string; atendimento?: Atendimento; [key: string]: unknown }) => void,
+  onStatus?: (status: SseStatus) => void,
+): () => void {
+  let cancelled = false
+  const token = sessionStorage.getItem('token') ?? ''
+  const decoder = new TextDecoder()
+  const RETRY_DELAYS = [2000, 4000, 8000, 16000, 30000]
+  let retryCount = 0
+
+  async function connect() {
+    while (!cancelled) {
+      onStatus?.('connecting')
+      try {
+        const res = await fetch('/api/atendimentos/eventos', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+        retryCount = 0
+        onStatus?.('connected')
+        const reader = res.body.getReader()
+        let buffer = ''
+        while (!cancelled) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+          for (const line of lines) {
+            if (!line.startsWith('data:')) continue
+            try {
+              const event = JSON.parse(line.slice(5).trim())
+              if (!cancelled) onEvent(event)
+            } catch {
+              // linha malformada
+            }
+          }
+        }
+        reader.cancel()
+      } catch {
+        // conexão perdida
+      }
+      if (!cancelled) {
+        onStatus?.('disconnected')
+        const delay = RETRY_DELAYS[Math.min(retryCount, RETRY_DELAYS.length - 1)]
+        retryCount++
+        await new Promise((r) => setTimeout(r, delay))
+      }
+    }
+  }
+
+  connect()
+  return () => { cancelled = true }
 }
 
 /**
