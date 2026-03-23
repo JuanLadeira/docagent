@@ -12,6 +12,7 @@ from docagent.database import Base
 from docagent.tenant.models import Tenant
 from docagent.usuario.models import Usuario, UsuarioRole
 from docagent.agente.models import Agente
+from docagent.whatsapp.models import WhatsappInstancia  # garante que a tabela é registrada no metadata
 from docagent.auth.security import get_password_hash
 from docagent.settings import Settings
 

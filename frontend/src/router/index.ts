@@ -41,6 +41,12 @@ const router = createRouter({
       component: () => import('@/views/agentes/AgentesView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/whatsapp',
+      name: 'whatsapp',
+      component: () => import('@/views/whatsapp/WhatsappView.vue'),
+      meta: { requiresAuth: true },
+    },
 
     // Admin
     {

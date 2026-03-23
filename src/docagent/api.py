@@ -16,6 +16,7 @@ from docagent.tenant.router import router as tenant_router
 from docagent.usuario.router import router as usuario_router
 from docagent.admin.router import router as admin_router
 from docagent.agente.router import router as agente_router
+from docagent.whatsapp.router import router as whatsapp_router
 
 load_dotenv()
 
@@ -37,3 +38,6 @@ app.include_router(tenant_router)
 app.include_router(usuario_router)
 app.include_router(admin_router)
 app.include_router(agente_router)
+
+# Canais de atendimento
+app.include_router(whatsapp_router)
