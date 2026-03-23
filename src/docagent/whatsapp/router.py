@@ -24,6 +24,8 @@ from sqlalchemy import select
 from docagent.agente.models import Agente
 from docagent.agents.configurable_agent import ConfigurableAgent
 from docagent.agents.registry import AgentConfig
+from docagent.atendimento.models import Atendimento, AtendimentoStatus, MensagemAtendimento, MensagemOrigem
+from docagent.atendimento.sse import atendimento_sse_manager
 from docagent.auth.current_user import CurrentUser
 from docagent.database import AsyncSessionLocal
 from docagent.dependencies import get_session_manager
@@ -160,11 +162,13 @@ async def eventos_instancia(
 
 @router.post("/webhook", status_code=status.HTTP_200_OK)
 async def receber_webhook(evento: WebhookEvento):
-    if evento.event == "QRCODE_UPDATED":
+    # Evolution API v1 usa maiúsculo+underscore; v2 usa minúsculo+ponto
+    event_normalized = evento.event.upper().replace(".", "_")
+    if event_normalized == "QRCODE_UPDATED":
         await _processar_qrcode(evento)
-    elif evento.event == "CONNECTION_UPDATE":
+    elif event_normalized == "CONNECTION_UPDATE":
         await _processar_connection_update(evento)
-    elif evento.event == "MESSAGES_UPSERT":
+    elif event_normalized == "MESSAGES_UPSERT":
         await _processar_mensagem_recebida(evento)
     return {"received": True, "event": evento.event, "instance": evento.instance}
 
@@ -221,6 +225,28 @@ async def _processar_connection_update(evento: WebhookEvento) -> None:
                 tenant_id = instancia.tenant_id
                 status_val = instancia.status.value
 
+        # Ao conectar, reconfigura webhook (pode ter sido perdido após restart)
+        if state == "open":
+            settings = Settings()
+            webhook_url = f"{settings.WEBHOOK_BASE_URL}/api/whatsapp/webhook"
+            try:
+                async with httpx.AsyncClient(
+                    base_url=settings.EVOLUTION_API_URL,
+                    headers={"apikey": settings.EVOLUTION_API_KEY},
+                    timeout=10.0,
+                ) as client:
+                    await client.post(
+                        f"/webhook/set/{evento.instance}",
+                        json={
+                            "url": webhook_url,
+                            "webhook_by_events": False,
+                            "webhook_base64": True,
+                            "events": ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+                        },
+                    )
+            except Exception:
+                pass
+
         await sse_manager.broadcast(tenant_id, {
             "type": "CONNECTION_UPDATE",
             "instance_name": evento.instance,
@@ -231,12 +257,21 @@ async def _processar_connection_update(evento: WebhookEvento) -> None:
 
 
 async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
-    """Recebe mensagem do WhatsApp, executa o agente vinculado e responde."""
+    """Recebe mensagem do WhatsApp, gerencia atendimento e executa o agente se ATIVO."""
     try:
         data = evento.data
         key = data.get("key", {})
         if key.get("fromMe"):
             return
+
+        remote_jid = key.get("remoteJid", "")
+        if "@g.us" in remote_jid:
+            return  # ignorar grupos
+
+        # LID = WhatsApp privacy mode (newer accounts): sem número de telefone disponível.
+        # Não é possível enviar para @lid via Evolution API v1.8.x.
+        # Criamos o atendimento mas não acionamos o agente.
+        is_lid = "@lid" in remote_jid
 
         conteudo = (
             data.get("message", {}).get("conversation")
@@ -246,35 +281,80 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         if not conteudo:
             return
 
-        numero = key.get("remoteJid", "").replace("@s.whatsapp.net", "")
+        numero = remote_jid.replace("@s.whatsapp.net", "").replace("@lid", "")
         session_id = f"whatsapp:{numero}"
 
-        # Buscar instância e agente vinculado
+        # Buscar instância, agente e gerenciar atendimento
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 select(WhatsappInstancia).where(WhatsappInstancia.instance_name == evento.instance)
             )
             instancia = result.scalar_one_or_none()
-            if not instancia or not instancia.agente_id:
+            if not instancia:
                 return
 
-            agente_result = await db.execute(
-                select(Agente).where(Agente.id == instancia.agente_id, Agente.ativo == True)
+            agente = None
+            if instancia.agente_id:
+                agente_result = await db.execute(
+                    select(Agente).where(Agente.id == instancia.agente_id, Agente.ativo == True)
+                )
+                agente = agente_result.scalar_one_or_none()
+
+            # Upsert atendimento
+            at_result = await db.execute(
+                select(Atendimento).where(
+                    Atendimento.instancia_id == instancia.id,
+                    Atendimento.numero == numero,
+                    Atendimento.status != AtendimentoStatus.ENCERRADO,
+                )
             )
-            agente = agente_result.scalar_one_or_none()
-            if not agente:
-                return
+            atendimento = at_result.scalar_one_or_none()
+            if not atendimento:
+                atendimento = Atendimento(
+                    numero=numero,
+                    instancia_id=instancia.id,
+                    tenant_id=instancia.tenant_id,
+                    status=AtendimentoStatus.ATIVO,
+                )
+                db.add(atendimento)
+                await db.flush()
+                await db.refresh(atendimento)
+
+            # Salvar mensagem do contato
+            msg_contato = MensagemAtendimento(
+                atendimento_id=atendimento.id,
+                origem=MensagemOrigem.CONTATO,
+                conteudo=conteudo,
+            )
+            db.add(msg_contato)
+
+            atendimento_id = atendimento.id
+            atendimento_status = atendimento.status
+            agente_obj = agente  # mantém referência antes do commit
+            await db.commit()
+
+        # Broadcast mensagem do contato via SSE
+        await atendimento_sse_manager.broadcast(atendimento_id, {
+            "type": "NOVA_MENSAGEM",
+            "origem": "CONTATO",
+            "conteudo": conteudo,
+        })
+
+        # Se operador assumiu, não há agente configurado, ou é contato LID (não é possível
+        # enviar via Evolution API v1.8.x para @lid JIDs), não acionar o agente.
+        if atendimento_status == AtendimentoStatus.HUMANO or not agente or is_lid:
+            return
 
         # Executar agente
         config = AgentConfig(
-            id=str(agente.id),
-            name=agente.nome,
-            description=agente.descricao,
-            skill_names=agente.skill_names,
+            id=str(agente_obj.id),
+            name=agente_obj.nome,
+            description=agente_obj.descricao,
+            skill_names=agente_obj.skill_names,
         )
         agent = ConfigurableAgent(
             config,
-            system_prompt_override=agente.system_prompt or None,
+            system_prompt_override=agente_obj.system_prompt or None,
         ).build()
 
         sessions = get_session_manager()
@@ -291,6 +371,23 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         if not answer:
             return
 
+        # Salvar resposta do agente
+        async with AsyncSessionLocal() as db:
+            msg_agente = MensagemAtendimento(
+                atendimento_id=atendimento_id,
+                origem=MensagemOrigem.AGENTE,
+                conteudo=answer,
+            )
+            db.add(msg_agente)
+            await db.commit()
+
+        # Broadcast resposta do agente via SSE
+        await atendimento_sse_manager.broadcast(atendimento_id, {
+            "type": "NOVA_MENSAGEM",
+            "origem": "AGENTE",
+            "conteudo": answer,
+        })
+
         # Enviar resposta via Evolution API
         settings = Settings()
         async with httpx.AsyncClient(
@@ -300,7 +397,7 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         ) as client:
             await client.post(
                 f"/message/sendText/{evento.instance}",
-                json={"number": numero, "text": answer},
+                json={"number": numero, "textMessage": {"text": answer}},
             )
     except Exception:
         pass  # Webhook must always return 200
