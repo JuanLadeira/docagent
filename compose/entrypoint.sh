@@ -78,6 +78,41 @@ async def main():
                     session.add(a)
                 print('[entrypoint] Agentes padrão criados.')
 
+    # Seed servidores MCP de exemplo se não existir nenhum
+    async with SessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(select(McpServer))
+            if not result.scalars().first():
+                servidores_exemplo = [
+                    McpServer(
+                        nome='Fetch',
+                        descricao='Busca e converte o conteúdo de qualquer URL para texto. Requer uvx (uv).',
+                        command='uvx',
+                        args=['mcp-server-fetch'],
+                        env={},
+                        ativo=False,
+                    ),
+                    McpServer(
+                        nome='Memory',
+                        descricao='Grafo de conhecimento persistente: o agente pode salvar e recuperar fatos entre conversas. Requer Node.js.',
+                        command='npx',
+                        args=['-y', '@modelcontextprotocol/server-memory'],
+                        env={},
+                        ativo=False,
+                    ),
+                    McpServer(
+                        nome='Time',
+                        descricao='Fornece data/hora atual e conversão de fusos horários. Requer Node.js.',
+                        command='npx',
+                        args=['-y', '@modelcontextprotocol/server-time'],
+                        env={},
+                        ativo=False,
+                    ),
+                ]
+                for s in servidores_exemplo:
+                    session.add(s)
+                print('[entrypoint] Servidores MCP de exemplo criados (inativos).')
+
 asyncio.run(main())
 "
 
