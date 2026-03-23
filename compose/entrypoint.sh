@@ -108,6 +108,14 @@ async def main():
                         env={},
                         ativo=False,
                     ),
+                    McpServer(
+                        nome='Puppeteer',
+                        descricao='Automação de browser real: navega páginas, clica, extrai conteúdo e tira screenshots. Requer Node.js e Chromium.',
+                        command='npx',
+                        args=['-y', '@modelcontextprotocol/server-puppeteer'],
+                        env={},
+                        ativo=False,
+                    ),
                 ]
                 for s in servidores_exemplo:
                     session.add(s)
