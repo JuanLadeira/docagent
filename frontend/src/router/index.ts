@@ -42,6 +42,18 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/agentes/novo',
+      name: 'agente-novo',
+      component: () => import('@/views/agentes/AgenteFormView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/agentes/:id/editar',
+      name: 'agente-editar',
+      component: () => import('@/views/agentes/AgenteFormView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/atendimentos',
       name: 'atendimentos',
       component: () => import('@/views/atendimento/AtendimentoView.vue'),

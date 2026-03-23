@@ -113,7 +113,7 @@ onMounted(carregar)
 </script>
 
 <template>
-  <div class="p-6 max-w-4xl mx-auto">
+  <div class="p-6 max-w-4xl mx-auto h-full overflow-y-auto">
     <div class="flex items-center justify-between mb-6">
       <div>
         <h1 class="text-xl font-semibold text-gray-800">Servidores MCP</h1>
