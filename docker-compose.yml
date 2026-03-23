@@ -49,17 +49,49 @@ services:
     restart: unless-stopped
 
   evolution-api:
-    image: atendai/evolution-api:v2.2.3
+    build:
+      context: ./evolution-api
+      dockerfile: Dockerfile
+      args:
+        VERSION: "2.3.7"
     ports:
       - "8080:8080"
     environment:
       SERVER_URL: http://localhost:8080
       AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-changeme}
-      DATABASE_ENABLED: "false"
-      CACHE_REDIS_ENABLED: "false"
+      # Banco de dados (v2 usa PostgreSQL para persistência)
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: "postgresql://user:pass@postgres:5432/evolution"
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_client
+      # Storage no banco
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_HISTORIC: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - evolution_data:/evolution/instances
     restart: unless-stopped
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   evolution_data:
+  evolution_db_data:

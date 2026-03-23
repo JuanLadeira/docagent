@@ -24,16 +24,19 @@ class WhatsappService:
     # ── Instâncias (DB + Evolution API) ─────────────────────────────
 
     async def criar_instancia(self, tenant_id: int, data: InstanciaCreate, webhook_url: str) -> WhatsappInstancia:
-        # v1: webhook é string (URL), opções de webhook são campos separados
+        # v2: integration é obrigatório; webhook é objeto aninhado
         r = await self.client.post(
             "/instance/create",
             json={
                 "instanceName": data.instance_name,
+                "integration": "WHATSAPP-BAILEYS",
                 "qrcode": True,
-                "webhook": webhook_url,
-                "webhookByEvents": False,
-                "webhookBase64": True,
-                "events": ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+                "webhook": {
+                    "url": webhook_url,
+                    "byEvents": False,
+                    "base64": True,
+                    "events": ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+                },
             },
         )
         _verificar_resposta(r)

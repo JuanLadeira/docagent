@@ -397,7 +397,7 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         ) as client:
             await client.post(
                 f"/message/sendText/{evento.instance}",
-                json={"number": numero, "textMessage": {"text": answer}},
+                json={"number": numero, "text": answer},
             )
     except Exception:
         pass  # Webhook must always return 200
