@@ -1,17 +1,33 @@
 """
 Testes TDD para GET /agents (routers/agents.py).
 
-Valida a listagem de agentes disponiveis com suas skills.
-Sem mocks de servico — o endpoint e puramente baseado no registry estatico.
+Valida a listagem de agentes ativos com suas skills.
+Agentes agora vêm do banco de dados (ID numérico como string).
 """
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
+
+
+def _make_mock_agentes():
+    """Dois agentes fake simulando o que viria do banco."""
+    a1 = MagicMock(id=1, nome="Analista de Documentos", descricao="Analisa PDFs", skill_names=["rag_search", "web_search"], ativo=True)
+    a2 = MagicMock(id=2, nome="Pesquisador Web", descricao="Busca na web", skill_names=["web_search"], ativo=True)
+    return [a1, a2]
 
 
 @pytest.fixture
 def client():
     from docagent.api import app
-    return TestClient(app)
+    from docagent.agente.services import get_agente_service
+
+    svc = MagicMock()
+    svc.get_all = AsyncMock(return_value=_make_mock_agentes())
+    app.dependency_overrides[get_agente_service] = lambda: svc
+
+    yield TestClient(app)
+
+    app.dependency_overrides.clear()
 
 
 class TestListAgents:
@@ -26,15 +42,16 @@ class TestListAgents:
         response = client.get("/agents")
         assert len(response.json()) >= 1
 
-    def test_contains_doc_analyst(self, client):
+    def test_returns_two_agents(self, client):
         response = client.get("/agents")
-        ids = [a["id"] for a in response.json()]
-        assert "doc-analyst" in ids
+        assert len(response.json()) == 2
 
-    def test_contains_web_researcher(self, client):
+    def test_ids_are_numeric_strings(self, client):
+        """IDs agora são numéricos (string do id do banco)."""
         response = client.get("/agents")
         ids = [a["id"] for a in response.json()]
-        assert "web-researcher" in ids
+        assert "1" in ids
+        assert "2" in ids
 
 
 class TestAgentInfoShape:
@@ -72,25 +89,25 @@ class TestAgentInfoShape:
         assert "description" in skill
 
 
-class TestDocAnalystAgent:
+class TestAgentSkills:
     def test_doc_analyst_has_two_skills(self, client):
         agents = client.get("/agents").json()
-        doc_analyst = next(a for a in agents if a["id"] == "doc-analyst")
+        doc_analyst = next(a for a in agents if a["id"] == "1")
         assert len(doc_analyst["skills"]) == 2
 
     def test_doc_analyst_has_rag_search_skill(self, client):
         agents = client.get("/agents").json()
-        doc_analyst = next(a for a in agents if a["id"] == "doc-analyst")
+        doc_analyst = next(a for a in agents if a["id"] == "1")
         skill_names = [s["name"] for s in doc_analyst["skills"]]
         assert "rag_search" in skill_names
 
     def test_doc_analyst_has_web_search_skill(self, client):
         agents = client.get("/agents").json()
-        doc_analyst = next(a for a in agents if a["id"] == "doc-analyst")
+        doc_analyst = next(a for a in agents if a["id"] == "1")
         skill_names = [s["name"] for s in doc_analyst["skills"]]
         assert "web_search" in skill_names
 
     def test_web_researcher_has_one_skill(self, client):
         agents = client.get("/agents").json()
-        researcher = next(a for a in agents if a["id"] == "web-researcher")
+        researcher = next(a for a in agents if a["id"] == "2")
         assert len(researcher["skills"]) == 1

@@ -1,8 +1,11 @@
 import asyncio
 import json
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from fastapi.security import OAuth2PasswordBearer
+from jwt import DecodeError, ExpiredSignatureError, decode
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -21,7 +24,35 @@ from docagent.atendimento.schemas import (
 from docagent.atendimento.services import AtendimentoServiceDep
 from docagent.atendimento.sse import atendimento_lista_sse_manager, atendimento_sse_manager
 from docagent.auth.current_user import CurrentUser
-from docagent.database import AsyncDBSession
+from docagent.database import AsyncDBSession, AsyncSessionLocal
+from docagent.settings import Settings
+from docagent.usuario.models import Usuario
+
+_settings = Settings()
+_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+
+
+async def _resolve_tenant_sse(token: str = Depends(_oauth2_scheme)) -> int:
+    """Valida o JWT e retorna tenant_id usando uma sessão de curta duração.
+    Não mantém nenhuma conexão de banco aberta durante o stream SSE."""
+    try:
+        payload = decode(token, _settings.SECRET_KEY, algorithms=[_settings.ALGORITHM])
+        username = payload.get("sub")
+        if not username:
+            raise HTTPException(status_code=401, detail="Token inválido")
+    except (DecodeError, ExpiredSignatureError):
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Usuario).where(Usuario.username == username))
+        user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuário não encontrado")
+    return user.tenant_id
+
+
+TenantIdSse = Annotated[int, Depends(_resolve_tenant_sse)]
 
 router = APIRouter(
     prefix="/api/atendimentos",
@@ -40,10 +71,10 @@ async def _get_atendimento_or_404(atendimento_id: int, current_user: CurrentUser
 # IMPORTANTE: rotas literais (/eventos, /contatos) devem vir ANTES de /{id}
 
 @router.get("/eventos")
-async def eventos_lista(current_user: CurrentUser):
+async def eventos_lista(tenant_id: TenantIdSse):
     """Stream SSE de novos atendimentos e mudanças de status (para a lista)."""
     async def generate():
-        queue = await atendimento_lista_sse_manager.subscribe(current_user.tenant_id)
+        queue = await atendimento_lista_sse_manager.subscribe(tenant_id)
         try:
             while True:
                 try:
@@ -52,7 +83,7 @@ async def eventos_lista(current_user: CurrentUser):
                 except asyncio.TimeoutError:
                     yield 'data: {"type":"ping"}\n\n'
         finally:
-            atendimento_lista_sse_manager.unsubscribe(current_user.tenant_id, queue)
+            atendimento_lista_sse_manager.unsubscribe(tenant_id, queue)
 
     return StreamingResponse(
         generate(),
@@ -281,11 +312,19 @@ async def enviar_mensagem_operador(
 @router.get("/{atendimento_id}/eventos")
 async def eventos_atendimento(
     atendimento_id: int,
-    current_user: CurrentUser,
-    service: AtendimentoServiceDep,
+    tenant_id: TenantIdSse,
 ):
     """Stream SSE de novas mensagens do atendimento."""
-    await _get_atendimento_or_404(atendimento_id, current_user, service)
+    # Valida com sessão de curta duração — fecha antes de iniciar o stream
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Atendimento).where(
+                Atendimento.id == atendimento_id,
+                Atendimento.tenant_id == tenant_id,
+            )
+        )
+        if not result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Atendimento não encontrado")
 
     async def generate():
         queue = await atendimento_sse_manager.subscribe(atendimento_id)

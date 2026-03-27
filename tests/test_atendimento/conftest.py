@@ -74,6 +74,9 @@ async def client(db_session: AsyncSession, test_session_factory, mock_evolution)
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_evolution_client] = override_evolution
 
+    import docagent.whatsapp.router as _wh_router
+    _wh_router._agent_cache.clear()
+
     with patch("docagent.whatsapp.router.AsyncSessionLocal", test_session_factory):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
