@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type AgenteCreate, type McpServer } from '@/api/client'
+import { api, type AgenteCreate, type McpServer, type Documento } from '@/api/client'
 import { useAgentsStore } from '@/stores/agents'
 
 const route = useRoute()
@@ -25,8 +25,11 @@ const form = ref<AgenteCreate>({
 })
 
 const mcpServidores = ref<McpServer[]>([])
+const documentos = ref<Documento[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const uploadingDoc = ref(false)
+const docError = ref('')
 const error = ref('')
 
 function mcpSkillKey(serverId: number, toolName: string) {
@@ -64,10 +67,47 @@ async function load() {
       isEditing.value ? loadAgente() : Promise.resolve(),
     ])
     mcpServidores.value = mcpRes.data.filter(s => s.ativo && s.tools.length > 0)
+    if (isEditing.value) await loadDocumentos()
   } catch {
     error.value = 'Erro ao carregar dados'
   } finally {
     loading.value = false
+  }
+}
+
+async function loadDocumentos() {
+  const res = await api.listDocumentos(agenteId.value!)
+  documentos.value = res.data
+}
+
+async function handleUploadDoc(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  docError.value = ''
+  uploadingDoc.value = true
+  try {
+    const res = await api.uploadDocumento(agenteId.value!, file)
+    documentos.value.push(res.data)
+  } catch (e: unknown) {
+    const status = (e as { response?: { status?: number } })?.response?.status
+    if (status === 409) {
+      docError.value = 'Este arquivo já foi indexado para este agente.'
+    } else {
+      docError.value = 'Erro ao indexar documento.'
+    }
+  } finally {
+    uploadingDoc.value = false
+    ;(event.target as HTMLInputElement).value = ''
+  }
+}
+
+async function removerDocumento(docId: number) {
+  docError.value = ''
+  try {
+    await api.removerDocumento(agenteId.value!, docId)
+    documentos.value = documentos.value.filter(d => d.id !== docId)
+  } catch {
+    docError.value = 'Erro ao remover documento.'
   }
 }
 
@@ -199,6 +239,58 @@ onMounted(load)
               class="accent-indigo-600 w-4 h-4"
             />
             <label for="ativo" class="text-sm text-slate-600">Agente ativo</label>
+          </div>
+        </div>
+
+        <!-- Card Documentos — apenas no modo edição -->
+        <div v-if="isEditing" class="bg-white rounded-xl border border-slate-200 p-6">
+          <h2 class="text-slate-700 font-semibold text-sm uppercase tracking-wide mb-4">
+            Documentos
+            <span class="ml-2 text-xs font-normal text-slate-400 normal-case">
+              {{ documentos.length }} indexado{{ documentos.length !== 1 ? 's' : '' }}
+            </span>
+          </h2>
+
+          <!-- Lista de documentos -->
+          <div class="space-y-2 mb-4">
+            <div
+              v-for="doc in documentos"
+              :key="doc.id"
+              class="flex items-center justify-between p-3 border border-slate-200 rounded-lg"
+            >
+              <div class="min-w-0 mr-3">
+                <div class="text-sm font-medium text-slate-700 truncate">{{ doc.filename }}</div>
+                <div class="text-xs text-slate-400">{{ doc.chunks }} chunks</div>
+              </div>
+              <button
+                @click="removerDocumento(doc.id)"
+                class="text-xs text-red-400 hover:text-red-600 transition-colors shrink-0"
+              >
+                Remover
+              </button>
+            </div>
+            <div v-if="documentos.length === 0" class="text-sm text-slate-400 py-1">
+              Nenhum documento indexado para este agente.
+            </div>
+          </div>
+
+          <!-- Erro -->
+          <div v-if="docError" class="text-xs text-red-500 mb-3">{{ docError }}</div>
+
+          <!-- Upload -->
+          <div>
+            <span class="text-xs text-slate-500 font-medium mb-1 block">Adicionar PDF</span>
+            <input
+              type="file"
+              accept=".pdf"
+              @change="handleUploadDoc"
+              :disabled="uploadingDoc"
+              class="block w-full text-sm text-slate-500
+                     file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0
+                     file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700
+                     hover:file:bg-indigo-100 disabled:opacity-50"
+            />
+            <span v-if="uploadingDoc" class="text-xs text-slate-400 mt-1 block">Indexando...</span>
           </div>
         </div>
       </div>

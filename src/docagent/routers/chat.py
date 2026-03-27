@@ -35,6 +35,7 @@ def _build_agent(agente, extra_tools: list | None = None):
     )
     return ConfigurableAgent(
         config,
+        session_collection=f"agente_{agente.id}",
         system_prompt_override=agente.system_prompt or None,
         extra_tools=extra_tools,
     ).build()

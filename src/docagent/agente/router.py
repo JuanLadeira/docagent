@@ -1,6 +1,13 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
-from docagent.agente.schemas import AgenteCreate, AgentePublic, AgenteUpdate
+from docagent.agente.documento_service import DocumentoServiceDep
+from docagent.agente.schemas import (
+    AgenteCreate,
+    AgentePublic,
+    AgenteUpdate,
+    DocumentoPublic,
+    DocumentoUploadResponse,
+)
 from docagent.agente.services import AgenteServiceDep
 from docagent.auth.current_user import CurrentOwner, CurrentUser
 
@@ -43,3 +50,62 @@ async def delete_agente(agente_id: int, _: CurrentOwner, service: AgenteServiceD
     deleted = await service.delete(agente_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Agente nao encontrado")
+
+
+# --- Documentos ---
+
+
+@router.get("/{agente_id}/documentos", response_model=list[DocumentoPublic])
+async def listar_documentos(
+    agente_id: int,
+    _: CurrentUser,
+    service: AgenteServiceDep,
+    doc_service: DocumentoServiceDep,
+):
+    if not await service.get_by_id(agente_id):
+        raise HTTPException(status_code=404, detail="Agente nao encontrado")
+    return await doc_service.get_by_agente(agente_id)
+
+
+@router.post(
+    "/{agente_id}/documentos",
+    response_model=DocumentoUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_documento(
+    agente_id: int,
+    file: UploadFile = File(...),
+    _: CurrentUser = None,
+    service: AgenteServiceDep = None,
+    doc_service: DocumentoServiceDep = None,
+):
+    if not await service.get_by_id(agente_id):
+        raise HTTPException(status_code=404, detail="Agente nao encontrado")
+    content = await file.read()
+    try:
+        doc = await doc_service.create(agente_id, file.filename, content)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return DocumentoUploadResponse(
+        id=doc.id,
+        agente_id=doc.agente_id,
+        filename=doc.filename,
+        chunks=doc.chunks,
+        created_at=doc.created_at,
+        updated_at=doc.updated_at,
+        collection_id=f"agente_{agente_id}",
+    )
+
+
+@router.delete(
+    "/{agente_id}/documentos/{doc_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remover_documento(
+    agente_id: int,
+    doc_id: int,
+    _: CurrentUser,
+    doc_service: DocumentoServiceDep,
+):
+    if not await doc_service.delete(doc_id):
+        raise HTTPException(status_code=404, detail="Documento nao encontrado")

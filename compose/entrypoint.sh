@@ -11,7 +11,7 @@ from sqlalchemy import select, text
 from docagent.database import Base
 from docagent.tenant.models import Tenant
 from docagent.usuario.models import Usuario, UsuarioRole
-from docagent.agente.models import Agente
+from docagent.agente.models import Agente, Documento  # noqa
 from docagent.whatsapp.models import WhatsappInstancia  # garante que a tabela é registrada no metadata
 from docagent.atendimento.models import Atendimento, MensagemAtendimento, Contato  # noqa
 from docagent.mcp_server.models import McpServer, McpTool  # noqa

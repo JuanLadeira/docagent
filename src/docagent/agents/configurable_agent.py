@@ -37,11 +37,15 @@ class ConfigurableAgent(BaseAgent):
 
     @property
     def tools(self) -> list:
-        built_in = [
-            SKILL_REGISTRY[name].as_tool()
-            for name in self._config.skill_names
-            if name in SKILL_REGISTRY
-        ]
+        built_in = []
+        for name in self._config.skill_names:
+            if name not in SKILL_REGISTRY:
+                continue
+            skill = SKILL_REGISTRY[name]
+            if name == "rag_search" and self._session_collection:
+                from docagent.skills.rag_search import RagSearchSkill
+                skill = RagSearchSkill(collection=self._session_collection)
+            built_in.append(skill.as_tool())
         return built_in + self._extra_tools
 
     @property
