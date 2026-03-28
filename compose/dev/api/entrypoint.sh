@@ -124,7 +124,7 @@ async def main():
                 )
                 if not existe.scalar_one_or_none():
                     session.add(McpServer(**dados, ativo=False))
-                    print(f"[entrypoint] Servidor MCP criado: {dados['nome']}")
+                    print('[entrypoint] Servidor MCP criado: ' + dados['nome'])
 
 asyncio.run(main())
 "
