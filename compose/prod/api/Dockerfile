@@ -24,13 +24,13 @@ COPY src/ ./src/
 # Copia os servidores MCP customizados
 COPY mcp_servers/ ./mcp_servers/
 
-# Copia o entrypoint de dev
-COPY compose/dev/api/entrypoint.sh /entrypoint.sh
+# Copia o entrypoint de prod (roda Alembic + seed)
+COPY compose/prod/api/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Cria o diretorio de dados (ChromaDB e PDFs sao montados via volume)
 RUN mkdir -p data/pdfs data/chroma_db
 
-EXPOSE 8000 8501
+EXPOSE 8000
 
 ENTRYPOINT ["/entrypoint.sh"]

@@ -58,6 +58,7 @@ services:
       - ./data:/app/data
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      - ./mcp_servers:/app/mcp_servers
     environment:
       DOCAGENT_DB_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
       WEBHOOK_BASE_URL: "https://${DOMAIN}"

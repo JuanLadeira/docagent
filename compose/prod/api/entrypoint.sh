@@ -1,21 +1,25 @@
 #!/bin/bash
 set -e
 
-echo "[entrypoint] Inicializando banco de dados..."
+echo "[entrypoint] Rodando migrações Alembic..."
+uv run alembic upgrade head
+echo "[entrypoint] Migrações aplicadas."
+
+echo "[entrypoint] Executando seed de dados iniciais..."
 
 uv run python -c "
 import asyncio, sys
 sys.path.insert(0, '/app/src')
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from sqlalchemy import select, text
+from sqlalchemy import select
 from docagent.database import Base
 from docagent.tenant.models import Tenant
 from docagent.usuario.models import Usuario, UsuarioRole
-from docagent.agente.models import Agente, Documento  # noqa
-from docagent.whatsapp.models import WhatsappInstancia  # garante que a tabela é registrada no metadata
 from docagent.telegram.models import TelegramInstancia  # noqa
+from docagent.whatsapp.models import WhatsappInstancia  # noqa
 from docagent.atendimento.models import Atendimento, MensagemAtendimento, Contato  # noqa
 from docagent.mcp_server.models import McpServer, McpTool  # noqa
+from docagent.agente.models import Agente, Documento  # noqa
 from docagent.auth.security import get_password_hash
 from docagent.settings import Settings
 
@@ -26,10 +30,6 @@ password = settings.ADMIN_DEFAULT_PASSWORD
 async def main():
     engine = create_async_engine(settings.DOCAGENT_DB_URL)
     SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    print('[entrypoint] Tabelas verificadas/criadas.')
 
     async with SessionLocal() as session:
         async with session.begin():
