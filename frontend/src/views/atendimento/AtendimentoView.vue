@@ -241,12 +241,13 @@ async function encerrar() {
 async function enviarMensagem() {
   if (!selecionado.value || !mensagemInput.value.trim() || enviando.value) return
   enviando.value = true
+  const conteudo = mensagemInput.value.trim()
+  mensagemInput.value = ''
   try {
-    const r = await api.enviarMensagemOperador(selecionado.value.id, mensagemInput.value.trim())
-    selecionado.value.mensagens.push(r.data)
-    mensagemInput.value = ''
-    await nextTick()
-    scrollToBottom()
+    await api.enviarMensagemOperador(selecionado.value.id, conteudo)
+    // A mensagem chega via SSE (NOVA_MENSAGEM) — não adicionar aqui para evitar duplicata
+  } catch {
+    mensagemInput.value = conteudo
   } finally {
     enviando.value = false
   }
