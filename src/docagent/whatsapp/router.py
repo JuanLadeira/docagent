@@ -14,6 +14,7 @@ Notificações em tempo real (QR code, status):
 """
 import asyncio
 import json
+import re
 from contextlib import AsyncExitStack
 
 import httpx
@@ -345,12 +346,12 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         if is_lid:
             numero_resolvido = await _resolver_lid_para_numero(evento.instance, remote_jid)
             if numero_resolvido:
-                numero = numero_resolvido
+                numero = re.sub(r"[^\d]", "", numero_resolvido)
                 is_lid = False
             else:
-                numero = remote_jid.replace("@lid", "")
+                numero = re.sub(r"[^\d]", "", remote_jid.replace("@lid", ""))
         else:
-            numero = remote_jid.replace("@s.whatsapp.net", "")
+            numero = re.sub(r"[^\d]", "", remote_jid.replace("@s.whatsapp.net", ""))
 
         conteudo = (
             data.get("message", {}).get("conversation")

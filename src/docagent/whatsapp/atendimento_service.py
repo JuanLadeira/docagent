@@ -40,6 +40,7 @@ class WhatsappAtendimentoService:
         self, instancia_id: int, tenant_id: int, numero: str
     ) -> Atendimento:
         """Busca atendimento WhatsApp ativo/humano para o número. Se não existe, cria novo."""
+        numero = self._normalizar_numero(numero)
         result = await self.session.execute(
             select(Atendimento).where(
                 Atendimento.instancia_id == instancia_id,
@@ -76,10 +77,17 @@ class WhatsappAtendimentoService:
         await self.session.refresh(msg)
         return msg
 
+    @staticmethod
+    def _normalizar_numero(numero: str) -> str:
+        """Remove formatação do número de telefone, mantendo apenas dígitos."""
+        import re
+        return re.sub(r"[^\d]", "", numero)
+
     async def iniciar_conversa(
         self, instancia_id: int, tenant_id: int, numero: str, mensagem_inicial: str | None = None
     ) -> tuple[Atendimento, MensagemAtendimento | None]:
         """Cria um novo atendimento WhatsApp (ou retoma existente) iniciado pelo operador."""
+        numero = self._normalizar_numero(numero)
         result = await self.session.execute(
             select(Atendimento).where(
                 Atendimento.instancia_id == instancia_id,
