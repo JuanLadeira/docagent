@@ -1,7 +1,7 @@
 """
 Fase 6 — Router de documentos: upload de PDFs para ingestão no RAG.
 """
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, Depends, Form, UploadFile, File
 
 from docagent.schemas.chat import UploadResponse
 from docagent.services.ingest_service import IngestService
@@ -13,7 +13,7 @@ router = APIRouter()
 @router.post("/documents/upload", response_model=UploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
-    session_id: str = "default",
+    session_id: str = Form("default"),
     service: IngestService = Depends(get_ingest_service),
 ) -> UploadResponse:
     """Recebe um PDF e o ingere no ChromaDB da sessão."""

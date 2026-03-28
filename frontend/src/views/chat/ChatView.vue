@@ -2,6 +2,7 @@
 import { ref, nextTick, onMounted, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useAgentsStore } from '@/stores/agents'
+import { api, type Documento } from '@/api/client'
 
 const chat = useChatStore()
 const agentsStore = useAgentsStore()
@@ -10,8 +11,18 @@ const input = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
 const isUploading = ref(false)
+const documentos = ref<Documento[]>([])
+const loadingDocs = ref(false)
+const docError = ref('')
 
-onMounted(() => agentsStore.fetchIfNeeded())
+onMounted(async () => {
+  await agentsStore.fetchIfNeeded()
+  if (chat.selectedAgentId) loadDocumentos(chat.selectedAgentId)
+})
+
+watch(() => chat.selectedAgentId, (id) => {
+  if (id) loadDocumentos(id)
+})
 
 // Scroll ao fim quando chegam novas mensagens ou step muda
 watch(
@@ -39,21 +50,60 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+function selectAgent(id: string) {
+  chat.selectedAgentId = id
+  loadDocumentos(id)
+}
+
+async function loadDocumentos(agentId: string) {
+  const numericId = Number(agentId)
+  if (!numericId) return
+  loadingDocs.value = true
+  docError.value = ''
+  try {
+    const res = await api.listDocumentos(numericId)
+    documentos.value = res.data
+  } catch {
+    documentos.value = []
+  } finally {
+    loadingDocs.value = false
+  }
+}
+
 async function handleFileChange(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
+  const numericId = Number(chat.selectedAgentId)
+  if (!numericId) return
   isUploading.value = true
-  await chat.uploadDocument(file)
-  isUploading.value = false
-  if (fileInputEl.value) fileInputEl.value.value = ''
+  docError.value = ''
+  try {
+    const res = await api.uploadDocumento(numericId, file)
+    documentos.value.push(res.data)
+  } catch (err: unknown) {
+    const status = (err as { response?: { status?: number } })?.response?.status
+    docError.value = status === 409
+      ? 'Este arquivo já foi indexado para este agente.'
+      : 'Erro ao indexar documento.'
+  } finally {
+    isUploading.value = false
+    if (fileInputEl.value) fileInputEl.value.value = ''
+  }
+}
+
+async function removerDocumento(docId: number) {
+  const numericId = Number(chat.selectedAgentId)
+  if (!numericId) return
+  try {
+    await api.removerDocumento(numericId, docId)
+    documentos.value = documentos.value.filter(d => d.id !== docId)
+  } catch {
+    docError.value = 'Erro ao remover documento.'
+  }
 }
 
 function triggerUpload() {
   fileInputEl.value?.click()
-}
-
-function selectAgent(id: string) {
-  chat.selectedAgentId = id
 }
 </script>
 
@@ -87,18 +137,32 @@ function selectAgent(id: string) {
               "
             >
               <div class="font-medium">{{ agent.name }}</div>
-              <div class="text-xs mt-0.5 opacity-70">
-                {{ agent.skills.map((s) => s.icon + ' ' + s.label).join(' · ') }}
+              <div class="text-xs mt-0.5 opacity-70 flex flex-wrap gap-x-2">
+                <span v-for="skill in agent.skills" :key="skill.name">
+                  {{ skill.icon }} {{ skill.label }}
+                </span>
               </div>
             </button>
           </div>
         </div>
 
-        <!-- File upload -->
+        <!-- Base de Conhecimento -->
         <div>
-          <label class="block text-slate-400 text-xs uppercase tracking-wider mb-2">
-            Documentos
-          </label>
+          <div class="flex items-center justify-between mb-2">
+            <label class="block text-slate-400 text-xs uppercase tracking-wider">
+              Base de Conhecimento
+            </label>
+            <button
+              v-if="chat.selectedAgentId"
+              @click="triggerUpload"
+              :disabled="isUploading"
+              title="Adicionar PDF"
+              class="text-slate-400 hover:text-white transition-colors disabled:opacity-40 text-sm"
+            >
+              +
+            </button>
+          </div>
+
           <input
             ref="fileInputEl"
             type="file"
@@ -106,61 +170,71 @@ function selectAgent(id: string) {
             class="hidden"
             @change="handleFileChange"
           />
-          <button
-            @click="triggerUpload"
-            :disabled="isUploading"
-            class="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-slate-300 border border-slate-600 hover:border-slate-400 hover:text-white transition-colors disabled:opacity-50"
-          >
-            <span>{{ isUploading ? '⏳' : '📎' }}</span>
-            <span>{{ isUploading ? 'Indexando...' : 'Carregar PDF' }}</span>
-          </button>
 
-          <div
-            v-if="chat.uploadFeedback"
-            class="mt-2 text-xs px-2 py-1 rounded"
-            :class="
-              chat.uploadFeedback.startsWith('⚠️')
-                ? 'bg-red-900/40 text-red-400'
-                : 'bg-green-900/40 text-green-400'
-            "
-          >
-            {{ chat.uploadFeedback }}
-            <span v-if="chat.lastUploadedFile" class="block text-slate-500 truncate">
-              {{ chat.lastUploadedFile }}
-            </span>
+          <!-- Sem agente selecionado -->
+          <div v-if="!chat.selectedAgentId" class="text-slate-500 text-xs py-1">
+            Selecione um agente para ver seus documentos.
           </div>
-        </div>
 
-        <!-- Sessao -->
-        <div>
-          <label class="block text-slate-400 text-xs uppercase tracking-wider mb-2">Sessão</label>
-          <div class="text-slate-500 text-xs font-mono mb-2">
-            {{ chat.sessionId.slice(0, 8) }}...
+          <!-- Carregando -->
+          <div v-else-if="loadingDocs" class="text-slate-500 text-xs py-1">
+            Carregando...
           </div>
-          <button
-            @click="chat.resetSession()"
-            :disabled="chat.isLoading"
-            class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
-          >
-            🗑️ Nova conversa
-          </button>
-        </div>
-      </div>
 
-      <!-- Skills info -->
-      <div class="p-4 border-t border-slate-700">
-        <div class="text-slate-500 text-xs">
-          <div v-if="agentsStore.agents.find((a) => a.id === chat.selectedAgentId)" class="space-y-1">
+          <!-- Lista de documentos -->
+          <div v-else class="space-y-1">
             <div
-              v-for="skill in agentsStore.agents.find((a) => a.id === chat.selectedAgentId)?.skills"
-              :key="skill.name"
-              class="flex items-center gap-2"
+              v-for="doc in documentos"
+              :key="doc.id"
+              class="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-slate-800 group"
             >
-              <span>{{ skill.icon }}</span>
-              <span>{{ skill.label }}</span>
+              <div class="min-w-0 flex-1">
+                <div class="text-slate-300 text-xs font-medium truncate" :title="doc.filename">
+                  📄 {{ doc.filename }}
+                </div>
+                <div class="text-slate-500 text-xs">{{ doc.chunks }} chunks</div>
+              </div>
+              <button
+                @click="removerDocumento(doc.id)"
+                title="Remover documento"
+                class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all text-xs shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+
+            <!-- Estado vazio -->
+            <div v-if="documentos.length === 0" class="text-slate-500 text-xs py-1">
+              Nenhum documento indexado.
+              <button @click="triggerUpload" class="text-indigo-400 hover:text-indigo-300 underline ml-1">
+                Adicionar PDF
+              </button>
             </div>
           </div>
+
+          <!-- Upload em progresso -->
+          <div v-if="isUploading" class="mt-2 flex items-center gap-2 text-xs text-slate-400">
+            <span class="inline-block w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></span>
+            Indexando...
+          </div>
+
+          <!-- Erro -->
+          <div v-if="docError" class="mt-2 text-xs text-red-400 bg-red-900/30 px-2 py-1 rounded">
+            {{ docError }}
+          </div>
         </div>
+
+      </div>
+
+      <!-- Nova conversa -->
+      <div class="p-4 border-t border-slate-700">
+        <button
+          @click="chat.resetSession()"
+          :disabled="chat.isLoading"
+          class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
+        >
+          🗑️ Nova conversa
+        </button>
       </div>
     </aside>
 

@@ -71,6 +71,27 @@ def build_vectorstore(chunks: list, collection_name: str = "docagent") -> Chroma
     return vectorstore
 
 
+def delete_document_from_vectorstore(filename: str, collection_name: str) -> int:
+    """Remove todos os chunks de um documento do ChromaDB pela metadata source_file.
+
+    Retorna o número de chunks deletados.
+    """
+    embeddings = OllamaEmbeddings(
+        model=os.getenv("EMBED_MODEL", "nomic-embed-text"),
+        base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+    )
+    vectorstore = Chroma(
+        persist_directory=os.getenv("CHROMA_PATH", "./data/chroma_db"),
+        embedding_function=embeddings,
+        collection_name=collection_name,
+    )
+    results = vectorstore.get(where={"source_file": filename})
+    ids = results.get("ids", [])
+    if ids:
+        vectorstore.delete(ids=ids)
+    return len(ids)
+
+
 def ingest(pdf_dir: str = "./data/pdfs"):
     console.print("[bold]DocAgent — Pipeline de Ingestão[/bold]\n")
 

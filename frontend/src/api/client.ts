@@ -156,6 +156,16 @@ export interface McpServer {
   tools: McpTool[]
 }
 
+export interface Documento {
+  id: number
+  agente_id: number
+  filename: string
+  chunks: number
+  collection_id?: string
+  created_at: string
+  updated_at: string
+}
+
 export interface McpServerCreate {
   nome: string
   descricao: string
@@ -208,6 +218,19 @@ export const api = {
   getContato: (id: number) => apiClient.get<ContatoDetalhe>(`/atendimentos/contatos/${id}`),
   atualizarContato: (id: number, data: ContatoUpdate) =>
     apiClient.patch<Contato>(`/atendimentos/contatos/${id}`, data),
+
+  // Documentos por agente
+  listDocumentos: (agenteId: number) =>
+    apiClient.get<Documento[]>(`/agentes/${agenteId}/documentos`),
+  uploadDocumento: (agenteId: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return apiClient.post<Documento>(`/agentes/${agenteId}/documentos`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  removerDocumento: (agenteId: number, docId: number) =>
+    apiClient.delete(`/agentes/${agenteId}/documentos/${docId}`),
 
   // MCP Servidores
   listMcpServidores: () => apiClient.get<McpServer[]>('/mcp-servidores'),

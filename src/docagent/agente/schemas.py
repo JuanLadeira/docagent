@@ -30,3 +30,18 @@ class AgentePublic(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class DocumentoPublic(BaseModel):
+    id: int
+    agente_id: int
+    filename: str
+    chunks: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DocumentoUploadResponse(DocumentoPublic):
+    collection_id: str
