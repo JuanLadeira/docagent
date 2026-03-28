@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from docagent.atendimento.models import AtendimentoStatus, MensagemOrigem, Prioridade
+from docagent.atendimento.models import AtendimentoStatus, CanalAtendimento, MensagemOrigem, Prioridade
 
 
 class MensagemPublic(BaseModel):
@@ -18,7 +18,9 @@ class AtendimentoPublic(BaseModel):
     id: int
     numero: str
     nome_contato: str | None
-    instancia_id: int
+    canal: CanalAtendimento
+    instancia_id: int | None
+    telegram_instancia_id: int | None
     tenant_id: int
     status: AtendimentoStatus
     prioridade: Prioridade

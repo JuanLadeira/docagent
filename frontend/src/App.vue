@@ -17,11 +17,10 @@ const navItems = computed(() => {
     { name: 'Conversa', path: '/conversa', icon: '💬' },
   ]
   if (auth.isOwner) {
-    items.push({ name: 'Atendimentos', path: '/atendimentos', icon: '🎧' })
+    items.push({ name: 'Atendimentos WA', path: '/atendimentos', icon: '📱' })
+    items.push({ name: 'Atendimentos TG', path: '/atendimentos/telegram', icon: '✈️' })
     items.push({ name: 'Contatos', path: '/contatos', icon: '👤' })
-    items.push({ name: 'WhatsApp', path: '/whatsapp', icon: '📱' })
     items.push({ name: 'Agentes', path: '/agentes', icon: '🤖' })
-    items.push({ name: 'Servidores MCP', path: '/mcp-servidores', icon: '🔌' })
   }
   items.push({ name: 'Configurações', path: '/configuracoes', icon: '⚙️' })
   return items

@@ -81,6 +81,7 @@ export interface InstanciaCreate {
 export type AtendimentoStatus = 'ATIVO' | 'HUMANO' | 'ENCERRADO'
 export type MensagemOrigem = 'CONTATO' | 'AGENTE' | 'OPERADOR'
 export type Prioridade = 'NORMAL' | 'ALTA' | 'URGENTE'
+export type Canal = 'WHATSAPP' | 'TELEGRAM'
 
 export interface MensagemAtendimento {
   id: number
@@ -93,13 +94,33 @@ export interface Atendimento {
   id: number
   numero: string
   nome_contato: string | null
-  instancia_id: number
+  canal: Canal
+  instancia_id: number | null
+  telegram_instancia_id: number | null
   tenant_id: number
   status: AtendimentoStatus
   prioridade: Prioridade
   contato_id: number | null
   created_at: string
   updated_at: string
+}
+
+export interface TelegramInstancia {
+  id: number
+  bot_username: string | null
+  webhook_configured: boolean
+  status: 'ATIVA' | 'INATIVA'
+  cria_atendimentos: boolean
+  tenant_id: number
+  agente_id: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TelegramInstanciaCreate {
+  bot_token: string
+  agente_id: number | null
+  cria_atendimentos: boolean
 }
 
 export interface AtendimentoDetalhe extends Atendimento {
@@ -203,8 +224,10 @@ export const api = {
   // Atendimento
   criarAtendimento: (data: { instancia_id: number; numero: string; mensagem_inicial?: string }) =>
     apiClient.post<Atendimento>('/atendimentos', data),
-  listAtendimentos: (status?: AtendimentoStatus) =>
-    apiClient.get<Atendimento[]>('/atendimentos', { params: status ? { status } : undefined }),
+  listAtendimentos: (status?: AtendimentoStatus, canal?: Canal) =>
+    apiClient.get<Atendimento[]>('/atendimentos', {
+      params: { ...(status ? { status } : {}), ...(canal ? { canal } : {}) },
+    }),
   getAtendimento: (id: number) => apiClient.get<AtendimentoDetalhe>(`/atendimentos/${id}`),
   assumirAtendimento: (id: number) => apiClient.post<Atendimento>(`/atendimentos/${id}/assumir`),
   devolverAtendimento: (id: number) => apiClient.post<Atendimento>(`/atendimentos/${id}/devolver`),
@@ -249,6 +272,14 @@ export const api = {
   getQrcode: (id: number) => apiClient.get<{ base64?: string; status?: string }>(`/whatsapp/instancias/${id}/qrcode`),
   sincronizarStatus: (id: number) =>
     apiClient.get<WhatsappInstancia>(`/whatsapp/instancias/${id}/status`),
+
+  // Telegram
+  listTelegramInstancias: () => apiClient.get<TelegramInstancia[]>('/telegram/instancias'),
+  createTelegramInstancia: (data: TelegramInstanciaCreate) =>
+    apiClient.post<TelegramInstancia>('/telegram/instancias', data),
+  deleteTelegramInstancia: (id: number) => apiClient.delete(`/telegram/instancias/${id}`),
+  configurarTelegramWebhook: (id: number) =>
+    apiClient.post<TelegramInstancia>(`/telegram/instancias/${id}/webhook/configurar`),
 }
 
 /**

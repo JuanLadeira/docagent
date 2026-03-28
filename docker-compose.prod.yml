@@ -1,0 +1,170 @@
+services:
+  traefik:
+    image: traefik:v3
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks:
+      - proxy
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH}"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      - "traefik.http.routers.traefik-dashboard.middlewares=traefik-auth"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  postgres-evolution:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_EVOLUTION_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_EVOLUTION_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - postgres_evolution_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_EVOLUTION_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: compose/Dockerfile
+    entrypoint: /entrypoint.prod.sh
+    command: uv run uvicorn docagent.api:app --host 0.0.0.0 --port 8000 --workers 2
+    volumes:
+      - ./data:/app/data
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    environment:
+      DOCAGENT_DB_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      WEBHOOK_BASE_URL: "https://${DOMAIN}"
+      FRONTEND_URL: "https://${DOMAIN}"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL}"
+      LLM_MODEL: "${LLM_MODEL}"
+      EMBED_MODEL: "${EMBED_MODEL}"
+      SECRET_KEY: "${SECRET_KEY}"
+      EVOLUTION_API_URL: "http://evolution-api:8080"
+      EVOLUTION_API_KEY: "${EVOLUTION_API_KEY}"
+      ADMIN_DEFAULT_USERNAME: "${ADMIN_DEFAULT_USERNAME}"
+      ADMIN_DEFAULT_PASSWORD: "${ADMIN_DEFAULT_PASSWORD}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - proxy
+      - internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`${DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/auth`) || PathPrefix(`/agents`) || PathPrefix(`/health`) || PathPrefix(`/documents`) || PathPrefix(`/session`) || PathPrefix(`/chat`))"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api.loadbalancer.server.port=8000"
+      - "traefik.http.routers.api.priority=10"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    depends_on:
+      - api
+    networks:
+      - proxy
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+      - "traefik.http.routers.frontend.priority=1"
+
+  evolution-api:
+    build:
+      context: ./evolution-api
+      dockerfile: Dockerfile
+      args:
+        VERSION: "2.3.7"
+    environment:
+      SERVER_URL: "https://evolution.${DOMAIN}"
+      AUTHENTICATION_API_KEY: "${EVOLUTION_API_KEY}"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: "postgresql://${POSTGRES_EVOLUTION_USER}:${POSTGRES_EVOLUTION_PASSWORD}@postgres-evolution:5432/evolution"
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_client
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_HISTORIC: "true"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+    depends_on:
+      postgres-evolution:
+        condition: service_healthy
+    volumes:
+      - evolution_data:/evolution/instances
+    networks:
+      - proxy
+      - internal
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.evolution.rule=Host(`evolution.${DOMAIN}`)"
+      - "traefik.http.routers.evolution.entrypoints=websecure"
+      - "traefik.http.routers.evolution.tls.certresolver=letsencrypt"
+      - "traefik.http.services.evolution.loadbalancer.server.port=8080"
+
+networks:
+  proxy:
+    external: false
+  internal:
+    external: false
+
+volumes:
+  letsencrypt:
+  postgres_data:
+  postgres_evolution_data:
+  evolution_data:

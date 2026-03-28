@@ -21,6 +21,7 @@ from docagent.usuario.router import router as usuario_router
 from docagent.admin.router import router as admin_router
 from docagent.agente.router import router as agente_router
 from docagent.whatsapp.router import router as whatsapp_router
+from docagent.telegram.router import router as telegram_router
 from docagent.atendimento.router import router as atendimento_router
 from docagent.mcp_server.router import router as mcp_router
 
@@ -65,6 +66,7 @@ app.include_router(agente_router)
 
 # Canais de atendimento
 app.include_router(whatsapp_router)
+app.include_router(telegram_router)
 app.include_router(atendimento_router)
 
 # MCP — skills dinâmicas

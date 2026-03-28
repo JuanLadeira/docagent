@@ -2,14 +2,14 @@ import asyncio
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
 from jwt import DecodeError, ExpiredSignatureError, decode
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from docagent.atendimento.models import Atendimento, AtendimentoStatus, Contato
+from docagent.atendimento.models import Atendimento, AtendimentoStatus, CanalAtendimento, Contato
 from docagent.atendimento.schemas import (
     AtendimentoCreate,
     AtendimentoDetalhe,
@@ -26,7 +26,9 @@ from docagent.atendimento.sse import atendimento_lista_sse_manager, atendimento_
 from docagent.auth.current_user import CurrentUser
 from docagent.database import AsyncDBSession, AsyncSessionLocal
 from docagent.settings import Settings
+from docagent.telegram.atendimento_service import TelegramAtendimentoServiceDep
 from docagent.usuario.models import Usuario
+from docagent.whatsapp.atendimento_service import WhatsappAtendimentoServiceDep
 
 _settings = Settings()
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
@@ -127,10 +129,8 @@ async def criar_contato(
         at.contato_id = contato.id
         at.nome_contato = contato.nome
 
-    # Não chamar session.commit() aqui — o get_db faz o commit via session.begin()
     await session.flush()
 
-    # Notificar frontend via SSE para atualizar nome na lista
     for at in atendimentos_vinculados:
         at_public = AtendimentoPublic.model_validate(at)
         await atendimento_lista_sse_manager.broadcast(current_user.tenant_id, {
@@ -200,9 +200,9 @@ async def atualizar_contato(
 async def criar_atendimento(
     data: AtendimentoCreate,
     current_user: CurrentUser,
-    service: AtendimentoServiceDep,
+    wa_service: WhatsappAtendimentoServiceDep,
 ):
-    atendimento, msg = await service.iniciar_conversa(
+    atendimento, msg = await wa_service.iniciar_conversa(
         data.instancia_id, current_user.tenant_id, data.numero, data.mensagem_inicial
     )
     if msg:
@@ -224,10 +224,12 @@ async def criar_atendimento(
 async def listar_atendimentos(
     current_user: CurrentUser,
     service: AtendimentoServiceDep,
-    status: str | None = None,
+    status: str | None = Query(None),
+    canal: str | None = Query(None),
 ):
     status_enum = AtendimentoStatus(status) if status else None
-    return await service.listar(current_user.tenant_id, status_enum)
+    canal_enum = CanalAtendimento(canal) if canal else None
+    return await service.listar(current_user.tenant_id, status_enum, canal_enum)
 
 
 @router.get("/{atendimento_id}", response_model=AtendimentoDetalhe)
@@ -297,9 +299,21 @@ async def enviar_mensagem_operador(
     data: OperadorMensagemRequest,
     current_user: CurrentUser,
     service: AtendimentoServiceDep,
+    wa_service: WhatsappAtendimentoServiceDep,
+    tg_service: TelegramAtendimentoServiceDep,
 ):
     atendimento = await _get_atendimento_or_404(atendimento_id, current_user, service)
-    msg = await service.enviar_mensagem_operador(atendimento, data.conteudo)
+    if atendimento.status != AtendimentoStatus.HUMANO:
+        raise HTTPException(
+            status_code=400,
+            detail="Só é possível enviar mensagem quando o atendimento está em modo HUMANO",
+        )
+
+    if atendimento.canal == CanalAtendimento.TELEGRAM:
+        msg = await tg_service.enviar_mensagem_operador(atendimento, data.conteudo)
+    else:
+        msg = await wa_service.enviar_mensagem_operador(atendimento, data.conteudo)
+
     await atendimento_sse_manager.broadcast(atendimento_id, {
         "type": "NOVA_MENSAGEM",
         "origem": "OPERADOR",
@@ -315,7 +329,6 @@ async def eventos_atendimento(
     tenant_id: TenantIdSse,
 ):
     """Stream SSE de novas mensagens do atendimento."""
-    # Valida com sessão de curta duração — fecha antes de iniciar o stream
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(Atendimento).where(
