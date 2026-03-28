@@ -1,28 +1,26 @@
 """
-Fixtures para testes da Fase 16 (Telegram).
+Fixtures para testes da Fase 12 (WhatsApp).
 
-Usa SQLite in-memory + mesmo padrão do test_fase12.
-O webhook handler usa AsyncSessionLocal() diretamente, por isso:
-  1. Patchamos AsyncSessionLocal com a factory do engine de teste.
-  2. Limpamos _agent_cache entre testes.
+Usa SQLite in-memory async + mock do Evolution API client.
+
+Nota: os handlers de webhook usam AsyncSessionLocal() diretamente (sem DI),
+por isso o conftest expoe o engine e a session_factory para que possamos:
+  1. Patchear AsyncSessionLocal com uma factory do mesmo engine in-memory.
+  2. Commitar dados no setup antes de chamar o webhook.
 """
 import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from docagent.api import app
 from docagent.database import Base, get_db
+from docagent.whatsapp.client import get_evolution_client
+from docagent.whatsapp.models import ConexaoStatus, WhatsappInstancia
 from docagent.agente.models import Agente
 from docagent.tenant.models import Tenant
 from docagent.usuario.models import Usuario, UsuarioRole
 from docagent.auth.security import create_access_token, get_password_hash
-
-# Importar modelos de telegram e atendimento para registrar em Base.metadata
-from docagent.telegram.models import TelegramInstancia, TelegramBotStatus  # noqa: F401
-from docagent.atendimento.models import (  # noqa: F401
-    Atendimento, AtendimentoStatus, CanalAtendimento, MensagemAtendimento, MensagemOrigem,
-)
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -50,34 +48,38 @@ async def db_session(test_session_factory):
 
 
 @pytest_asyncio.fixture(scope="function")
-async def mock_telegram_api():
-    """AsyncMock do httpx.AsyncClient para a Telegram Bot API."""
+async def mock_evolution():
+    """AsyncMock do httpx.AsyncClient para a Evolution API."""
     client = AsyncMock()
     default_response = MagicMock(spec=Response)
     default_response.status_code = 200
-    default_response.json.return_value = {"ok": True, "result": {"username": "test_bot"}}
+    default_response.json.return_value = {}
     default_response.raise_for_status = MagicMock()
-    client.post = AsyncMock(return_value=default_response)
-    client.get = AsyncMock(return_value=default_response)
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=False)
+    client.post.return_value = default_response
+    client.get.return_value = default_response
+    client.delete.return_value = default_response
     return client
 
 
 @pytest_asyncio.fixture(scope="function")
-async def client(db_session: AsyncSession, test_session_factory, mock_telegram_api):
+async def client(db_session: AsyncSession, test_session_factory, mock_evolution):
+    from unittest.mock import patch
+
     async def override_db():
         yield db_session
 
+    async def override_evolution():
+        yield mock_evolution
+
     app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_evolution_client] = override_evolution
 
-    import docagent.telegram.router as _tg_router
-    _tg_router._agent_cache.clear()
+    import docagent.whatsapp.router as _wh_router
+    _wh_router._agent_cache.clear()
 
-    with (
-        patch("docagent.telegram.router.AsyncSessionLocal", test_session_factory),
-        patch("docagent.telegram.services.get_telegram_client", return_value=mock_telegram_api),
-    ):
+    # Patcha AsyncSessionLocal no router para usar o engine de teste,
+    # permitindo que os handlers de webhook vejam os dados commitados.
+    with patch("docagent.whatsapp.router.AsyncSessionLocal", test_session_factory):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as ac:
@@ -86,16 +88,11 @@ async def client(db_session: AsyncSession, test_session_factory, mock_telegram_a
     app.dependency_overrides.clear()
 
 
-@pytest_asyncio.fixture(scope="function")
-async def auth_headers(db_session):
-    """Cria tenant + owner e retorna headers de autenticação."""
-    _, _, token = await _criar_tenant_e_owner(db_session)
-    return {"Authorization": f"Bearer {token}"}
-
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _criar_tenant_e_owner(db_session, username="owner"):
+    """Cria tenant + usuario OWNER e retorna (tenant, user, token).
+    Commita para que handlers de webhook (nova sessao) possam ver os dados."""
     tenant = Tenant(nome="Tenant Teste")
     db_session.add(tenant)
     await db_session.flush()
@@ -119,8 +116,9 @@ async def _criar_tenant_e_owner(db_session, username="owner"):
 
 
 async def _criar_agente(db_session):
+    """Cria um Agente ativo no banco e commita."""
     agente = Agente(
-        nome="Agente Telegram Teste",
+        nome="Agente Teste",
         descricao="Para testes",
         system_prompt="Voce e um assistente de teste.",
         skill_names=[],
@@ -133,19 +131,11 @@ async def _criar_agente(db_session):
     return agente
 
 
-async def _criar_telegram_instancia(
-    db_session,
-    tenant_id: int,
-    agente_id: int | None = None,
-    bot_token: str = "test-token:123ABC",
-    cria_atendimentos: bool = True,
-):
-    instancia = TelegramInstancia(
-        bot_token=bot_token,
-        bot_username="test_bot",
-        webhook_configured=True,
-        status=TelegramBotStatus.ATIVA,
-        cria_atendimentos=cria_atendimentos,
+async def _criar_instancia(db_session, tenant_id: int, agente_id: int | None = None):
+    """Cria uma WhatsappInstancia no banco e commita."""
+    instancia = WhatsappInstancia(
+        instance_name="instancia-teste",
+        status=ConexaoStatus.CRIADA,
         tenant_id=tenant_id,
         agente_id=agente_id,
     )
@@ -154,25 +144,3 @@ async def _criar_telegram_instancia(
     await db_session.refresh(instancia)
     await db_session.commit()
     return instancia
-
-
-async def _criar_atendimento_telegram(
-    db_session,
-    telegram_instancia_id: int,
-    tenant_id: int,
-    numero: str = "123456789",
-    status: str = "ATIVO",
-):
-    at = Atendimento(
-        numero=numero,
-        telegram_instancia_id=telegram_instancia_id,
-        instancia_id=None,
-        canal=CanalAtendimento.TELEGRAM,
-        tenant_id=tenant_id,
-        status=AtendimentoStatus(status),
-    )
-    db_session.add(at)
-    await db_session.flush()
-    await db_session.refresh(at)
-    await db_session.commit()
-    return at

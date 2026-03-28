@@ -4,7 +4,6 @@ Fixtures para testes da feature Atendimento.
 Usa SQLite in-memory + mesmo padrão do test_fase12.
 Importar os modelos de atendimento garante que Base.metadata os inclua.
 """
-import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock
 from httpx import ASGITransport, AsyncClient, Response

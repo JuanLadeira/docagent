@@ -6,7 +6,6 @@ Estratégia:
 - Funções com dependências externas (Ollama, ChromaDB) são testadas com mocks,
   garantindo que a lógica interna está correta sem precisar de serviços rodando.
 """
-import pytest
 from unittest.mock import MagicMock, patch
 from langchain_core.documents import Document
 

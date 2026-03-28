@@ -3,11 +3,10 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import Response
 
-from docagent.telegram.models import TelegramInstancia, TelegramBotStatus
+from docagent.telegram.models import TelegramInstancia
 
 from tests.test_telegram.conftest import (
     _criar_tenant_e_owner,
-    _criar_agente,
     _criar_telegram_instancia,
 )
 
@@ -127,7 +126,6 @@ async def test_obter_instancia_outro_tenant_retorna_none(db_session):
 @pytest.mark.asyncio
 async def test_deletar_instancia_remove_do_banco(db_session):
     from docagent.telegram.services import TelegramService
-    from sqlalchemy import select
 
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
     inst = await _criar_telegram_instancia(db_session, tenant.id)
