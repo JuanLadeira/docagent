@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { api, type McpServer, type McpTool } from '@/api/client'
+import { api, type McpServer } from '@/api/client'
 
 const servidores = ref<McpServer[]>([])
 const carregando = ref(false)

@@ -134,7 +134,7 @@ async function remover(instancia: WhatsappInstancia) {
 function agenteName(agente_id: number | null): string {
   if (!agente_id) return '—'
   const a = agentsStore.agents.find((a) => Number(a.id) === agente_id)
-  return a?.name ?? `#${agente_id}`
+  return a?.nome ?? `#${agente_id}`
 }
 </script>
 
@@ -263,7 +263,7 @@ function agenteName(agente_id: number | null): string {
             >
               <option :value="null">— Nenhum (não responde automaticamente) —</option>
               <option v-for="a in agentsStore.agents" :key="a.id" :value="Number(a.id)">
-                {{ a.name }}
+                {{ a.nome }}
               </option>
             </select>
           </div>

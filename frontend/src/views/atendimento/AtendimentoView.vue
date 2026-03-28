@@ -23,8 +23,6 @@ const ativos = ref<Atendimento[]>([])       // ATIVO + HUMANO
 const historico = ref<Atendimento[]>([])    // ENCERRADO
 const aba = ref<'ativos' | 'historico'>('ativos')
 const carregandoHistorico = ref(false)
-const historicoPaginaAtual = ref(0)
-const HISTORICO_POR_PAGINA = 20
 
 const selecionado = ref<AtendimentoDetalhe | null>(null)
 const carregandoDetalhe = ref(false)
@@ -93,7 +91,7 @@ async function confirmarAdicionarContato() {
       nome: contatoForm.value.nome.trim(),
       email: contatoForm.value.email.trim() || null,
       notas: contatoForm.value.notas.trim() || null,
-      instancia_id: selecionado.value.instancia_id,
+      instancia_id: selecionado.value.instancia_id ?? 0,
     })
     // Recarregar o atendimento para pegar o contato_id atualizado
     const r = await api.getAtendimento(selecionado.value.id)

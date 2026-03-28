@@ -128,19 +128,17 @@ function triggerUpload() {
             <button
               v-for="agent in agentsStore.agents"
               :key="agent.id"
-              @click="selectAgent(agent.id)"
+              @click="selectAgent(String(agent.id))"
               class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors"
               :class="
-                chat.selectedAgentId === agent.id
+                chat.selectedAgentId === String(agent.id)
                   ? 'bg-indigo-600 text-white'
                   : 'text-slate-300 hover:bg-slate-700'
               "
             >
-              <div class="font-medium">{{ agent.name }}</div>
+              <div class="font-medium">{{ agent.nome }}</div>
               <div class="text-xs mt-0.5 opacity-70 flex flex-wrap gap-x-2">
-                <span v-for="skill in agent.skills" :key="skill.name">
-                  {{ skill.icon }} {{ skill.label }}
-                </span>
+                <span v-for="skill in agent.skill_names" :key="skill">{{ skill }}</span>
               </div>
             </button>
           </div>
@@ -330,7 +328,7 @@ function triggerUpload() {
           </button>
         </div>
         <p class="text-slate-400 text-xs mt-2">
-          Agente: <strong>{{ agentsStore.agents.find((a) => a.id === chat.selectedAgentId)?.name ?? chat.selectedAgentId }}</strong>
+          Agente: <strong>{{ agentsStore.agents.find((a) => String(a.id) === chat.selectedAgentId)?.nome ?? chat.selectedAgentId }}</strong>
         </p>
       </div>
     </div>
