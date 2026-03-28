@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from docagent.agente.models import Documento
 from docagent.database import AsyncDBSession
-from docagent.ingest import delete_document_from_vectorstore
-from docagent.services.ingest_service import IngestService
+from docagent.rag.ingest import delete_document_from_vectorstore
+from docagent.rag.ingest_service import IngestService
 
 
 class DocumentoService:

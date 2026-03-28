@@ -7,7 +7,7 @@ pipeline ingest.py e retorna metadados da ingestao.
 import tempfile
 from pathlib import Path
 
-from docagent.ingest import load_pdfs, split_documents, build_vectorstore
+from docagent.rag.ingest import load_pdfs, split_documents, build_vectorstore
 
 
 class IngestService:

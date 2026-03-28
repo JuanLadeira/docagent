@@ -18,7 +18,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from typing_extensions import TypedDict
 
-from docagent.memory import (
+from docagent.agent.memory import (
     should_summarize,
     summarize_history,
     trim_messages,

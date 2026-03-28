@@ -5,8 +5,8 @@ Camada de servico sem conhecimento de HTTP — testavel de forma isolada.
 """
 from typing import Iterator
 
-from docagent.base_agent import BaseAgent
-from docagent.session import SessionManager
+from docagent.agent.base import BaseAgent
+from docagent.chat.session import SessionManager
 
 
 class ChatService:

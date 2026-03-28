@@ -35,17 +35,19 @@ def _mock_mcp_service():
 
 @pytest.fixture
 def client():
+    from unittest.mock import patch, MagicMock
     from docagent.api import app
-    from docagent.dependencies import get_chat_service
     from docagent.agente.services import get_agente_service
     from docagent.mcp_server.services import get_mcp_service
 
     mock_service = make_mock_service()
-    app.dependency_overrides[get_chat_service] = lambda: mock_service
     app.dependency_overrides[get_agente_service] = lambda: _mock_agente_service()
     app.dependency_overrides[get_mcp_service] = lambda: _mock_mcp_service()
 
-    yield TestClient(app), mock_service
+    with patch("docagent.chat.router.ChatService", return_value=mock_service), \
+         patch("docagent.chat.router.ConfigurableAgent") as MockCA:
+        MockCA.return_value.build.return_value = MagicMock()
+        yield TestClient(app), mock_service
 
     app.dependency_overrides.clear()
 
@@ -57,18 +59,18 @@ def client():
 class TestChatRequestAgentId:
     def test_default_agent_id_is_1(self):
         """Agentes agora vêm do banco (ID numérico); default é "1"."""
-        from docagent.schemas.chat import ChatRequest
+        from docagent.chat.schemas import ChatRequest
         req = ChatRequest(question="teste")
         assert req.agent_id == "1"
 
     def test_accepts_custom_agent_id(self):
-        from docagent.schemas.chat import ChatRequest
+        from docagent.chat.schemas import ChatRequest
         req = ChatRequest(question="teste", agent_id="2")
         assert req.agent_id == "2"
 
     def test_agent_id_is_string(self):
         """agent_id é string livre; validação ocorre no router (int conversion)."""
-        from docagent.schemas.chat import ChatRequest
+        from docagent.chat.schemas import ChatRequest
         req = ChatRequest(question="teste", agent_id="42")
         assert req.agent_id == "42"
 

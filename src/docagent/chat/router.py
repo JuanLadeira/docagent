@@ -11,13 +11,13 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage
 
 from docagent.agente.services import AgenteServiceDep
-from docagent.agents.configurable_agent import ConfigurableAgent
-from docagent.agents.registry import AgentConfig
+from docagent.agent.configurable import ConfigurableAgent
+from docagent.agent.registry import AgentConfig
 from docagent.dependencies import get_session_manager
 from docagent.mcp_server.services import McpServiceDep, load_mcp_tools_for_skills
-from docagent.schemas.chat import ChatRequest, HealthResponse
-from docagent.services.chat_service import ChatService
-from docagent.session import SessionManager
+from docagent.chat.schemas import ChatRequest, HealthResponse
+from docagent.chat.service import ChatService
+from docagent.chat.session import SessionManager
 
 router = APIRouter()
 

@@ -10,7 +10,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 from langchain_core.documents import Document
 
-from docagent.ingest import load_pdfs, split_documents, build_vectorstore
+from docagent.rag.ingest import load_pdfs, split_documents, build_vectorstore
 
 
 class TestLoadPdfs:
@@ -28,7 +28,7 @@ class TestLoadPdfs:
         """Cada documento carregado deve ter o campo source_file nos metadados."""
         fake_doc = Document(page_content="conteudo", metadata={"page": 0})
 
-        with patch("docagent.ingest.PyMuPDFLoader") as MockLoader:
+        with patch("docagent.rag.ingest.PyMuPDFLoader") as MockLoader:
             mock_instance = MagicMock()
             mock_instance.load.return_value = [fake_doc]
             MockLoader.return_value = mock_instance
@@ -46,7 +46,7 @@ class TestLoadPdfs:
         """Todos os PDFs do diretório devem ser carregados."""
         fake_doc = Document(page_content="pagina", metadata={})
 
-        with patch("docagent.ingest.PyMuPDFLoader") as MockLoader:
+        with patch("docagent.rag.ingest.PyMuPDFLoader") as MockLoader:
             mock_instance = MagicMock()
             mock_instance.load.return_value = [fake_doc]
             MockLoader.return_value = mock_instance
@@ -123,8 +123,8 @@ class TestBuildVectorstore:
         mock_vectorstore = MagicMock()
 
         with (
-            patch("docagent.ingest.OllamaEmbeddings"),
-            patch("docagent.ingest.Chroma.from_documents", return_value=mock_vectorstore) as mock_chroma,
+            patch("docagent.rag.ingest.OllamaEmbeddings"),
+            patch("docagent.rag.ingest.Chroma.from_documents", return_value=mock_vectorstore) as mock_chroma,
         ):
             chunks = [Document(page_content="teste", metadata={})]
             result = build_vectorstore(chunks)

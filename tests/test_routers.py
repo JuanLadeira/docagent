@@ -41,11 +41,10 @@ def _mock_session_manager(delete_returns=True):
     return sm
 
 
-def _setup_overrides(app, mock_service, session_delete_returns=True):
-    from docagent.dependencies import get_chat_service, get_session_manager
+def _setup_overrides(app, session_delete_returns=True):
+    from docagent.dependencies import get_session_manager
     from docagent.agente.services import get_agente_service
     from docagent.mcp_server.services import get_mcp_service
-    app.dependency_overrides[get_chat_service] = lambda: mock_service
     app.dependency_overrides[get_agente_service] = lambda: _mock_agente_service()
     app.dependency_overrides[get_mcp_service] = lambda: _mock_mcp_service()
     app.dependency_overrides[get_session_manager] = lambda: _mock_session_manager(session_delete_returns)
@@ -54,15 +53,18 @@ def _setup_overrides(app, mock_service, session_delete_returns=True):
 @pytest.fixture
 def client():
     """
-    TestClient com dependencias sobrescritas via dependency_overrides.
-    Este e o padrao recomendado pelo FastAPI — sem mocks de modulo.
+    TestClient com dependencias sobrescritas via dependency_overrides + patch.
     """
+    from unittest.mock import patch
     from docagent.api import app
 
     mock_service = make_mock_service()
-    _setup_overrides(app, mock_service)
+    _setup_overrides(app)
 
-    yield TestClient(app), mock_service
+    with patch("docagent.chat.router.ChatService", return_value=mock_service), \
+         patch("docagent.chat.router.ConfigurableAgent") as MockCA:
+        MockCA.return_value.build.return_value = MagicMock()
+        yield TestClient(app), mock_service
 
     app.dependency_overrides.clear()
 
@@ -70,12 +72,17 @@ def client():
 @pytest.fixture
 def client_with_missing_session():
     """Client onde SessionManager.delete retorna False (sessao inexistente)."""
+    from unittest.mock import patch
     from docagent.api import app
 
     mock_service = make_mock_service()
-    _setup_overrides(app, mock_service, session_delete_returns=False)
+    _setup_overrides(app, session_delete_returns=False)
+    mock_service.delete_session.return_value = False
 
-    yield TestClient(app)
+    with patch("docagent.chat.router.ChatService", return_value=mock_service), \
+         patch("docagent.chat.router.ConfigurableAgent") as MockCA:
+        MockCA.return_value.build.return_value = MagicMock()
+        yield TestClient(app)
 
     app.dependency_overrides.clear()
 

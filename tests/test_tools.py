@@ -1,5 +1,5 @@
 """
-Testes para as tools do agente (tools.py).
+Testes para tools.py — LEGADO. tools.py foi removido; use agent/skills/.
 
 Estratégia:
 - rag_search e web_search dependem de ChromaDB e DuckDuckGo —
@@ -7,6 +7,10 @@ Estratégia:
 - Verificamos que as tools têm nome e descrição corretos,
   pois o LLM usa esses campos para decidir qual tool chamar.
 """
+import pytest
+
+pytestmark = pytest.mark.skip(reason="tools.py removido — use docagent.agent.skills")
+
 from unittest.mock import MagicMock, patch
 from langchain_core.documents import Document
 

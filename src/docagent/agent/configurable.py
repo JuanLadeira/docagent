@@ -4,9 +4,9 @@ Fase 6 — ConfigurableAgent: agente montado dinamicamente a partir de skills.
 Substitui DocAgent como agente principal do sistema.
 Subclasse de BaseAgent — herda build(), run() e stream().
 """
-from docagent.base_agent import BaseAgent
-from docagent.agents.registry import AgentConfig
-from docagent.skills import SKILL_REGISTRY
+from docagent.agent.base import BaseAgent
+from docagent.agent.registry import AgentConfig
+from docagent.agent.skills import SKILL_REGISTRY
 
 BASE_SYSTEM_PROMPT = """\
 Voce e um assistente especializado. Responda SEMPRE em portugues.
@@ -43,7 +43,7 @@ class ConfigurableAgent(BaseAgent):
                 continue
             skill = SKILL_REGISTRY[name]
             if name == "rag_search" and self._session_collection:
-                from docagent.skills.rag_search import RagSearchSkill
+                from docagent.agent.skills.rag_search import RagSearchSkill
                 skill = RagSearchSkill(collection=self._session_collection)
             built_in.append(skill.as_tool())
         return built_in + self._extra_tools

@@ -9,7 +9,7 @@ Estratégia:
 from unittest.mock import patch, MagicMock
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 
-from docagent.memory import (
+from docagent.agent.memory import (
     should_summarize,
     format_messages_for_summary,
     summarize_history,
@@ -135,7 +135,7 @@ class TestSummarizeHistory:
         mock_response = MagicMock()
         mock_response.content = "O usuario perguntou sobre RAG e recebeu uma explicacao."
 
-        with patch("docagent.memory.ChatOllama") as MockLLM:
+        with patch("docagent.agent.memory.ChatOllama") as MockLLM:
             mock_instance = MockLLM.return_value
             mock_instance.invoke.return_value = mock_response
 
@@ -152,7 +152,7 @@ class TestSummarizeHistory:
         mock_response = MagicMock()
         mock_response.content = "Resumo estendido."
 
-        with patch("docagent.memory.ChatOllama") as MockLLM:
+        with patch("docagent.agent.memory.ChatOllama") as MockLLM:
             mock_instance = MockLLM.return_value
             mock_instance.invoke.return_value = mock_response
 
@@ -165,7 +165,7 @@ class TestSummarizeHistory:
 
     def test_uses_temperature_zero(self):
         """Resumos devem ser deterministicos — temperature=0."""
-        with patch("docagent.memory.ChatOllama") as MockLLM:
+        with patch("docagent.agent.memory.ChatOllama") as MockLLM:
             MockLLM.return_value.invoke.return_value = MagicMock(content="resumo")
             summarize_history([HumanMessage(content="x")])
 

@@ -24,9 +24,9 @@ from langchain_core.messages import AIMessage
 from sqlalchemy import select
 
 from docagent.agente.models import Agente
-from docagent.agents.configurable_agent import ConfigurableAgent
-from docagent.agents.registry import AgentConfig
-from docagent.base_agent import BaseAgent
+from docagent.agent.configurable import ConfigurableAgent
+from docagent.agent.registry import AgentConfig
+from docagent.agent.base import BaseAgent
 from docagent.atendimento.models import Atendimento, AtendimentoStatus, Contato, MensagemAtendimento, MensagemOrigem
 from docagent.atendimento.sse import atendimento_lista_sse_manager, atendimento_sse_manager
 from docagent.auth.current_user import CurrentUser

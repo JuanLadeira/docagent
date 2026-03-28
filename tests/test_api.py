@@ -47,10 +47,9 @@ def _mock_session_manager(delete_returns=True):
 
 
 def _setup_overrides(app, mock_service, session_delete_returns=True):
-    from docagent.dependencies import get_chat_service, get_session_manager
+    from docagent.dependencies import get_session_manager
     from docagent.agente.services import get_agente_service
     from docagent.mcp_server.services import get_mcp_service
-    app.dependency_overrides[get_chat_service] = lambda: mock_service
     app.dependency_overrides[get_agente_service] = lambda: _mock_agente_service()
     app.dependency_overrides[get_mcp_service] = lambda: _mock_mcp_service()
     app.dependency_overrides[get_session_manager] = lambda: _mock_session_manager(session_delete_returns)
@@ -58,13 +57,17 @@ def _setup_overrides(app, mock_service, session_delete_returns=True):
 
 @pytest.fixture
 def client():
-    """TestClient com ChatService mockado via dependency_overrides."""
+    """TestClient com ChatService mockado via patch."""
+    from unittest.mock import patch
     from docagent.api import app
 
     mock_service = make_mock_service()
     _setup_overrides(app, mock_service)
 
-    yield TestClient(app), mock_service
+    with patch("docagent.chat.router.ChatService", return_value=mock_service), \
+         patch("docagent.chat.router.ConfigurableAgent") as MockCA:
+        MockCA.return_value.build.return_value = MagicMock()
+        yield TestClient(app), mock_service
 
     app.dependency_overrides.clear()
 
@@ -72,12 +75,16 @@ def client():
 @pytest.fixture
 def client_missing_session():
     """Client onde SessionManager.delete retorna False (sessao inexistente)."""
+    from unittest.mock import patch
     from docagent.api import app
 
     mock_service = make_mock_service()
     _setup_overrides(app, mock_service, session_delete_returns=False)
 
-    yield TestClient(app)
+    with patch("docagent.chat.router.ChatService", return_value=mock_service), \
+         patch("docagent.chat.router.ConfigurableAgent") as MockCA:
+        MockCA.return_value.build.return_value = MagicMock()
+        yield TestClient(app)
 
     app.dependency_overrides.clear()
 
@@ -228,14 +235,9 @@ class TestLangSmithConfig:
         """LANGCHAIN_TRACING_V2 deve ser 'true' quando LANGSMITH_API_KEY estiver definida."""
         monkeypatch.setenv("LANGSMITH_API_KEY", "lsv2_fake_key")
 
-        with (
-            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.OllamaEmbeddings"),
-            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.Chroma"),
-            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.DuckDuckGoSearchRun"),
-        ):
-            import importlib
-            import docagent.api as api_module
-            importlib.reload(api_module)
+        import importlib
+        import docagent.api as api_module
+        importlib.reload(api_module)
 
         assert os.getenv("LANGCHAIN_TRACING_V2") == "true"
 
@@ -244,13 +246,8 @@ class TestLangSmithConfig:
         monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
         monkeypatch.delenv("LANGCHAIN_TRACING_V2", raising=False)
 
-        with (
-            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.OllamaEmbeddings"),
-            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.Chroma"),
-            __import__("unittest.mock", fromlist=["patch"]).patch("docagent.tools.DuckDuckGoSearchRun"),
-        ):
-            import importlib
-            import docagent.api as api_module
-            importlib.reload(api_module)
+        import importlib
+        import docagent.api as api_module
+        importlib.reload(api_module)
 
         assert os.getenv("LANGCHAIN_TRACING_V2") != "true"

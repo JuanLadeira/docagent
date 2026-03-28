@@ -1,17 +1,20 @@
 """
-Testes TDD para DocAgent (doc_agent.py).
+Testes TDD para DocAgent (doc_agent.py) — LEGADO.
 
-Valida que DocAgent implementa corretamente o contrato de BaseAgent
-e declara as tools e o system_prompt corretos.
+doc_agent.py foi removido na reorganização arquitetural.
+Equivalente moderno: ConfigurableAgent em docagent.agent.configurable.
 """
 import pytest
+
+pytestmark = pytest.mark.skip(reason="doc_agent.py removido — use ConfigurableAgent")
+
 from unittest.mock import patch, MagicMock
 
 
 class TestDocAgentContract:
     def test_is_subclass_of_base_agent(self):
         """DocAgent deve herdar de BaseAgent."""
-        from docagent.base_agent import BaseAgent
+        from docagent.agent.base import BaseAgent
         from docagent.doc_agent import DocAgent
         assert issubclass(DocAgent, BaseAgent)
 
@@ -103,7 +106,7 @@ class TestDocAgentBuild:
             patch("docagent.tools.OllamaEmbeddings"),
             patch("docagent.tools.Chroma"),
             patch("docagent.tools.DuckDuckGoSearchRun"),
-            patch("docagent.base_agent._build_graph", return_value=MagicMock()),
+            patch("docagent.agent.base._build_graph", return_value=MagicMock()),
         ):
             from docagent.doc_agent import DocAgent
             agent = DocAgent()
@@ -116,7 +119,7 @@ class TestDocAgentBuild:
             patch("docagent.tools.OllamaEmbeddings"),
             patch("docagent.tools.Chroma"),
             patch("docagent.tools.DuckDuckGoSearchRun"),
-            patch("docagent.base_agent._build_graph", return_value=MagicMock()),
+            patch("docagent.agent.base._build_graph", return_value=MagicMock()),
         ):
             from docagent.doc_agent import DocAgent
             agent = DocAgent()
