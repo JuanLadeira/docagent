@@ -51,8 +51,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: compose/Dockerfile
-    entrypoint: /entrypoint.prod.sh
+      dockerfile: compose/prod/api/Dockerfile
     command: uv run uvicorn docagent.api:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
@@ -85,8 +84,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile.prod
+      context: .
+      dockerfile: compose/prod/frontend/Dockerfile
     ports:
       - "80:80"
     depends_on:
@@ -97,8 +96,8 @@ services:
 
   evolution-api:
     build:
-      context: ./evolution-api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: compose/prod/evolution-api/Dockerfile
       args:
         VERSION: "2.3.7"
     ports:
