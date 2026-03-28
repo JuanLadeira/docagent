@@ -78,56 +78,53 @@ async def main():
                     session.add(a)
                 print('[entrypoint] Agentes padrão criados.')
 
-    # Seed servidores MCP de exemplo se não existir nenhum
+    # Seed servidores MCP — upsert por nome (adiciona novos, não sobrescreve existentes)
+    servidores_exemplo = [
+        dict(
+            nome='Fetch',
+            descricao='Busca e converte o conteúdo de qualquer URL para texto. Requer uvx (uv).',
+            command='uvx',
+            args=['mcp-server-fetch'],
+            env={},
+        ),
+        dict(
+            nome='Memory',
+            descricao='Grafo de conhecimento persistente: o agente pode salvar e recuperar fatos entre conversas. Requer Node.js.',
+            command='npx',
+            args=['-y', '@modelcontextprotocol/server-memory'],
+            env={},
+        ),
+        dict(
+            nome='Time',
+            descricao='Fornece data/hora atual e conversão de fusos horários. Requer Node.js.',
+            command='npx',
+            args=['-y', '@modelcontextprotocol/server-time'],
+            env={},
+        ),
+        dict(
+            nome='Puppeteer',
+            descricao='Automação de browser real: navega páginas, clica, extrai conteúdo e tira screenshots. Requer Node.js e Chromium.',
+            command='npx',
+            args=['-y', '@modelcontextprotocol/server-puppeteer'],
+            env={},
+        ),
+        dict(
+            nome='Clima (Open-Meteo)',
+            descricao='Previsão do tempo em tempo real para qualquer cidade. Gratuito, sem chave de API. Dados atualizados a cada hora.',
+            command='uv',
+            args=['run', 'python', '/app/mcp_servers/weather.py'],
+            env={},
+        ),
+    ]
     async with SessionLocal() as session:
         async with session.begin():
-            result = await session.execute(select(McpServer))
-            if not result.scalars().first():
-                servidores_exemplo = [
-                    McpServer(
-                        nome='Fetch',
-                        descricao='Busca e converte o conteúdo de qualquer URL para texto. Requer uvx (uv).',
-                        command='uvx',
-                        args=['mcp-server-fetch'],
-                        env={},
-                        ativo=False,
-                    ),
-                    McpServer(
-                        nome='Memory',
-                        descricao='Grafo de conhecimento persistente: o agente pode salvar e recuperar fatos entre conversas. Requer Node.js.',
-                        command='npx',
-                        args=['-y', '@modelcontextprotocol/server-memory'],
-                        env={},
-                        ativo=False,
-                    ),
-                    McpServer(
-                        nome='Time',
-                        descricao='Fornece data/hora atual e conversão de fusos horários. Requer Node.js.',
-                        command='npx',
-                        args=['-y', '@modelcontextprotocol/server-time'],
-                        env={},
-                        ativo=False,
-                    ),
-                    McpServer(
-                        nome='Puppeteer',
-                        descricao='Automação de browser real: navega páginas, clica, extrai conteúdo e tira screenshots. Requer Node.js e Chromium.',
-                        command='npx',
-                        args=['-y', '@modelcontextprotocol/server-puppeteer'],
-                        env={},
-                        ativo=False,
-                    ),
-                    McpServer(
-                        nome='Clima (Open-Meteo)',
-                        descricao='Previsão do tempo em tempo real para qualquer cidade. Gratuito, sem chave de API. Dados atualizados a cada hora.',
-                        command='uv',
-                        args=['run', 'python', '/app/mcp_servers/weather.py'],
-                        env={},
-                        ativo=False,
-                    ),
-                ]
-                for s in servidores_exemplo:
-                    session.add(s)
-                print('[entrypoint] Servidores MCP de exemplo criados (inativos).')
+            for dados in servidores_exemplo:
+                existe = await session.execute(
+                    select(McpServer).where(McpServer.nome == dados['nome'])
+                )
+                if not existe.scalar_one_or_none():
+                    session.add(McpServer(**dados, ativo=False))
+                    print(f"[entrypoint] Servidor MCP criado: {dados['nome']}")
 
 asyncio.run(main())
 "
