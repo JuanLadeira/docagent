@@ -1,7 +1,7 @@
 """add atendimento tables
 
 Revision ID: a1b2c3d4e5f6
-Revises: 8fa0cf79480e
+Revises: 9ab1cd2ef3g4
 Create Date: 2026-03-21
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'a1b2c3d4e5f6'
-down_revision: Union[str, None] = '8fa0cf79480e'
+down_revision: Union[str, None] = '9ab1cd2ef3g4'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
