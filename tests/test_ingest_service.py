@@ -14,12 +14,12 @@ def make_mock_docs(n=3):
 
 class TestIngestServiceIngest:
     def _call_ingest(self, filename="test.pdf", content=b"fake pdf", session_id="s-1", n_chunks=3):
-        from docagent.services.ingest_service import IngestService
+        from docagent.rag.ingest_service import IngestService
 
         with (
-            patch("docagent.services.ingest_service.load_pdfs") as mock_load,
-            patch("docagent.services.ingest_service.split_documents") as mock_split,
-            patch("docagent.services.ingest_service.build_vectorstore") as mock_vs,
+            patch("docagent.rag.ingest_service.load_pdfs") as mock_load,
+            patch("docagent.rag.ingest_service.split_documents") as mock_split,
+            patch("docagent.rag.ingest_service.build_vectorstore") as mock_vs,
         ):
             mock_load.return_value = make_mock_docs(1)
             mock_split.return_value = make_mock_docs(n_chunks)
@@ -62,14 +62,14 @@ class TestIngestServiceIngest:
 
     def test_split_receives_loaded_docs(self):
         """split_documents deve receber o resultado de load_pdfs."""
-        from docagent.services.ingest_service import IngestService
+        from docagent.rag.ingest_service import IngestService
 
         loaded_docs = make_mock_docs(2)
 
         with (
-            patch("docagent.services.ingest_service.load_pdfs", return_value=loaded_docs),
-            patch("docagent.services.ingest_service.split_documents") as mock_split,
-            patch("docagent.services.ingest_service.build_vectorstore"),
+            patch("docagent.rag.ingest_service.load_pdfs", return_value=loaded_docs),
+            patch("docagent.rag.ingest_service.split_documents") as mock_split,
+            patch("docagent.rag.ingest_service.build_vectorstore"),
         ):
             mock_split.return_value = make_mock_docs(4)
             IngestService().ingest("f.pdf", b"content", "s")

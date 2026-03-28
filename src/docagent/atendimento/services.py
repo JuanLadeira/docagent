@@ -1,7 +1,6 @@
 from typing import Annotated
 
-import httpx
-from fastapi import Depends, HTTPException
+from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -9,44 +8,18 @@ from sqlalchemy.orm import selectinload
 from docagent.atendimento.models import (
     Atendimento,
     AtendimentoStatus,
+    CanalAtendimento,
     MensagemAtendimento,
     MensagemOrigem,
 )
 from docagent.database import AsyncDBSession
-from docagent.whatsapp.client import EvolutionClientDep
-from docagent.whatsapp.models import WhatsappInstancia
 
 
 class AtendimentoService:
-    def __init__(self, session: AsyncSession, client: httpx.AsyncClient):
+    """Serviço base com operações canal-agnósticas: transições de status, mensagens, consultas."""
+
+    def __init__(self, session: AsyncSession):
         self.session = session
-        self.client = client
-
-    async def criar_ou_retomar(
-        self, instancia_id: int, tenant_id: int, numero: str
-    ) -> Atendimento:
-        """Busca atendimento ativo/humano para o número. Se não existe, cria novo."""
-        result = await self.session.execute(
-            select(Atendimento).where(
-                Atendimento.instancia_id == instancia_id,
-                Atendimento.numero == numero,
-                Atendimento.status != AtendimentoStatus.ENCERRADO,
-            )
-        )
-        atendimento = result.scalar_one_or_none()
-        if atendimento:
-            return atendimento
-
-        atendimento = Atendimento(
-            numero=numero,
-            instancia_id=instancia_id,
-            tenant_id=tenant_id,
-            status=AtendimentoStatus.ATIVO,
-        )
-        self.session.add(atendimento)
-        await self.session.flush()
-        await self.session.refresh(atendimento)
-        return atendimento
 
     async def salvar_mensagem(
         self, atendimento_id: int, origem: MensagemOrigem, conteudo: str
@@ -92,81 +65,22 @@ class AtendimentoService:
         return result.scalar_one_or_none()
 
     async def listar(
-        self, tenant_id: int, status: AtendimentoStatus | None = None
+        self,
+        tenant_id: int,
+        status: AtendimentoStatus | None = None,
+        canal: CanalAtendimento | None = None,
     ) -> list[Atendimento]:
         query = select(Atendimento).where(Atendimento.tenant_id == tenant_id)
         if status:
             query = query.where(Atendimento.status == status)
+        if canal:
+            query = query.where(Atendimento.canal == canal)
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
-    async def iniciar_conversa(
-        self, instancia_id: int, tenant_id: int, numero: str, mensagem_inicial: str | None = None
-    ) -> tuple["Atendimento", "MensagemAtendimento | None"]:
-        """Cria um novo atendimento (ou retoma existente) iniciado pelo operador."""
-        result = await self.session.execute(
-            select(Atendimento).where(
-                Atendimento.instancia_id == instancia_id,
-                Atendimento.numero == numero,
-                Atendimento.status != AtendimentoStatus.ENCERRADO,
-            )
-        )
-        atendimento = result.scalar_one_or_none()
-        if not atendimento:
-            atendimento = Atendimento(
-                numero=numero,
-                instancia_id=instancia_id,
-                tenant_id=tenant_id,
-                status=AtendimentoStatus.HUMANO,
-            )
-            self.session.add(atendimento)
-            await self.session.flush()
-            await self.session.refresh(atendimento)
-        elif atendimento.status == AtendimentoStatus.ATIVO:
-            atendimento = await self.assumir(atendimento)
 
-        msg = None
-        if mensagem_inicial:
-            instancia = await self.session.get(WhatsappInstancia, instancia_id)
-            if instancia:
-                try:
-                    await self.client.post(
-                        f"/message/sendText/{instancia.instance_name}",
-                        json={"number": numero, "text": mensagem_inicial},
-                    )
-                except Exception:
-                    pass  # falha no envio não impede criação do atendimento
-            msg = await self.salvar_mensagem(atendimento.id, MensagemOrigem.OPERADOR, mensagem_inicial)
-
-        return atendimento, msg
-
-    async def enviar_mensagem_operador(
-        self, atendimento: Atendimento, conteudo: str
-    ) -> MensagemAtendimento:
-        if atendimento.status != AtendimentoStatus.HUMANO:
-            raise HTTPException(
-                status_code=400,
-                detail="Só é possível enviar mensagem quando o atendimento está em modo HUMANO",
-            )
-
-        # Busca instance_name da instância vinculada
-        instancia = await self.session.get(WhatsappInstancia, atendimento.instancia_id)
-        if instancia:
-            try:
-                await self.client.post(
-                    f"/message/sendText/{instancia.instance_name}",
-                    json={"number": atendimento.numero, "text": conteudo},
-                )
-            except Exception:
-                pass  # falha no envio não impede salvar a mensagem
-
-        return await self.salvar_mensagem(atendimento.id, MensagemOrigem.OPERADOR, conteudo)
-
-
-def get_atendimento_service(
-    session: AsyncDBSession, client: EvolutionClientDep
-) -> AtendimentoService:
-    return AtendimentoService(session, client)
+def get_atendimento_service(session: AsyncDBSession) -> AtendimentoService:
+    return AtendimentoService(session)
 
 
 AtendimentoServiceDep = Annotated[AtendimentoService, Depends(get_atendimento_service)]

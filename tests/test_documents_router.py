@@ -109,11 +109,12 @@ class TestUploadDelegation:
         assert len(call_args[1]) > 0
 
     def test_passes_session_id_to_service(self, client):
+        """session_id é lido do Form body (não query param)."""
         tc, mock_service = client
         tc.post(
             "/documents/upload",
             files={"file": ("doc.pdf", FAKE_PDF, "application/pdf")},
-            params={"session_id": "minha-sessao"},
+            data={"session_id": "minha-sessao"},
         )
         call_args = mock_service.ingest.call_args[0]
         assert call_args[2] == "minha-sessao"

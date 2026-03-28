@@ -1,12 +1,15 @@
 import asyncio
 import json
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
+from fastapi.security import OAuth2PasswordBearer
+from jwt import DecodeError, ExpiredSignatureError, decode
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from docagent.atendimento.models import Atendimento, AtendimentoStatus, Contato
+from docagent.atendimento.models import Atendimento, AtendimentoStatus, CanalAtendimento, Contato
 from docagent.atendimento.schemas import (
     AtendimentoCreate,
     AtendimentoDetalhe,
@@ -21,7 +24,37 @@ from docagent.atendimento.schemas import (
 from docagent.atendimento.services import AtendimentoServiceDep
 from docagent.atendimento.sse import atendimento_lista_sse_manager, atendimento_sse_manager
 from docagent.auth.current_user import CurrentUser
-from docagent.database import AsyncDBSession
+from docagent.database import AsyncDBSession, AsyncSessionLocal
+from docagent.settings import Settings
+from docagent.telegram.atendimento_service import TelegramAtendimentoServiceDep
+from docagent.usuario.models import Usuario
+from docagent.whatsapp.atendimento_service import WhatsappAtendimentoServiceDep
+
+_settings = Settings()
+_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+
+
+async def _resolve_tenant_sse(token: str = Depends(_oauth2_scheme)) -> int:
+    """Valida o JWT e retorna tenant_id usando uma sessão de curta duração.
+    Não mantém nenhuma conexão de banco aberta durante o stream SSE."""
+    try:
+        payload = decode(token, _settings.SECRET_KEY, algorithms=[_settings.ALGORITHM])
+        username = payload.get("sub")
+        if not username:
+            raise HTTPException(status_code=401, detail="Token inválido")
+    except (DecodeError, ExpiredSignatureError):
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Usuario).where(Usuario.username == username))
+        user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuário não encontrado")
+    return user.tenant_id
+
+
+TenantIdSse = Annotated[int, Depends(_resolve_tenant_sse)]
 
 router = APIRouter(
     prefix="/api/atendimentos",
@@ -40,10 +73,10 @@ async def _get_atendimento_or_404(atendimento_id: int, current_user: CurrentUser
 # IMPORTANTE: rotas literais (/eventos, /contatos) devem vir ANTES de /{id}
 
 @router.get("/eventos")
-async def eventos_lista(current_user: CurrentUser):
+async def eventos_lista(tenant_id: TenantIdSse):
     """Stream SSE de novos atendimentos e mudanças de status (para a lista)."""
     async def generate():
-        queue = await atendimento_lista_sse_manager.subscribe(current_user.tenant_id)
+        queue = await atendimento_lista_sse_manager.subscribe(tenant_id)
         try:
             while True:
                 try:
@@ -52,7 +85,7 @@ async def eventos_lista(current_user: CurrentUser):
                 except asyncio.TimeoutError:
                     yield 'data: {"type":"ping"}\n\n'
         finally:
-            atendimento_lista_sse_manager.unsubscribe(current_user.tenant_id, queue)
+            atendimento_lista_sse_manager.unsubscribe(tenant_id, queue)
 
     return StreamingResponse(
         generate(),
@@ -96,10 +129,8 @@ async def criar_contato(
         at.contato_id = contato.id
         at.nome_contato = contato.nome
 
-    # Não chamar session.commit() aqui — o get_db faz o commit via session.begin()
     await session.flush()
 
-    # Notificar frontend via SSE para atualizar nome na lista
     for at in atendimentos_vinculados:
         at_public = AtendimentoPublic.model_validate(at)
         await atendimento_lista_sse_manager.broadcast(current_user.tenant_id, {
@@ -169,9 +200,9 @@ async def atualizar_contato(
 async def criar_atendimento(
     data: AtendimentoCreate,
     current_user: CurrentUser,
-    service: AtendimentoServiceDep,
+    wa_service: WhatsappAtendimentoServiceDep,
 ):
-    atendimento, msg = await service.iniciar_conversa(
+    atendimento, msg = await wa_service.iniciar_conversa(
         data.instancia_id, current_user.tenant_id, data.numero, data.mensagem_inicial
     )
     if msg:
@@ -193,10 +224,12 @@ async def criar_atendimento(
 async def listar_atendimentos(
     current_user: CurrentUser,
     service: AtendimentoServiceDep,
-    status: str | None = None,
+    status: str | None = Query(None),
+    canal: str | None = Query(None),
 ):
     status_enum = AtendimentoStatus(status) if status else None
-    return await service.listar(current_user.tenant_id, status_enum)
+    canal_enum = CanalAtendimento(canal) if canal else None
+    return await service.listar(current_user.tenant_id, status_enum, canal_enum)
 
 
 @router.get("/{atendimento_id}", response_model=AtendimentoDetalhe)
@@ -266,9 +299,21 @@ async def enviar_mensagem_operador(
     data: OperadorMensagemRequest,
     current_user: CurrentUser,
     service: AtendimentoServiceDep,
+    wa_service: WhatsappAtendimentoServiceDep,
+    tg_service: TelegramAtendimentoServiceDep,
 ):
     atendimento = await _get_atendimento_or_404(atendimento_id, current_user, service)
-    msg = await service.enviar_mensagem_operador(atendimento, data.conteudo)
+    if atendimento.status != AtendimentoStatus.HUMANO:
+        raise HTTPException(
+            status_code=400,
+            detail="Só é possível enviar mensagem quando o atendimento está em modo HUMANO",
+        )
+
+    if atendimento.canal == CanalAtendimento.TELEGRAM:
+        msg = await tg_service.enviar_mensagem_operador(atendimento, data.conteudo)
+    else:
+        msg = await wa_service.enviar_mensagem_operador(atendimento, data.conteudo)
+
     await atendimento_sse_manager.broadcast(atendimento_id, {
         "type": "NOVA_MENSAGEM",
         "origem": "OPERADOR",
@@ -281,11 +326,18 @@ async def enviar_mensagem_operador(
 @router.get("/{atendimento_id}/eventos")
 async def eventos_atendimento(
     atendimento_id: int,
-    current_user: CurrentUser,
-    service: AtendimentoServiceDep,
+    tenant_id: TenantIdSse,
 ):
     """Stream SSE de novas mensagens do atendimento."""
-    await _get_atendimento_or_404(atendimento_id, current_user, service)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Atendimento).where(
+                Atendimento.id == atendimento_id,
+                Atendimento.tenant_id == tenant_id,
+            )
+        )
+        if not result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Atendimento não encontrado")
 
     async def generate():
         queue = await atendimento_sse_manager.subscribe(atendimento_id)

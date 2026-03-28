@@ -10,7 +10,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 from langchain_core.documents import Document
 
-from docagent.retriever import format_docs_with_citations, load_vectorstore, build_chain, ask
+from docagent.rag.retriever import format_docs_with_citations, load_vectorstore, build_chain, ask
 
 
 class TestFormatDocsWithCitations:
@@ -62,8 +62,8 @@ class TestLoadVectorstore:
         monkeypatch.setenv("EMBED_MODEL", "nomic-embed-text")
 
         with (
-            patch("docagent.retriever.OllamaEmbeddings"),
-            patch("docagent.retriever.Chroma") as MockChroma,
+            patch("docagent.rag.retriever.OllamaEmbeddings"),
+            patch("docagent.rag.retriever.Chroma") as MockChroma,
         ):
             load_vectorstore()
 
@@ -77,8 +77,8 @@ class TestLoadVectorstore:
         monkeypatch.setenv("CHROMA_PATH", str(tmp_path))
 
         with (
-            patch("docagent.retriever.OllamaEmbeddings") as MockEmbed,
-            patch("docagent.retriever.Chroma"),
+            patch("docagent.rag.retriever.OllamaEmbeddings") as MockEmbed,
+            patch("docagent.rag.retriever.Chroma"),
         ):
             load_vectorstore()
 
@@ -96,7 +96,7 @@ class TestBuildChain:
         mock_retriever = MagicMock()
         mock_vs.as_retriever.return_value = mock_retriever
 
-        with patch("docagent.retriever.ChatOllama"):
+        with patch("docagent.rag.retriever.ChatOllama"):
             chain, retriever = build_chain(mock_vs)
 
         assert chain is not None
@@ -108,7 +108,7 @@ class TestBuildChain:
 
         mock_vs = MagicMock()
 
-        with patch("docagent.retriever.ChatOllama"):
+        with patch("docagent.rag.retriever.ChatOllama"):
             build_chain(mock_vs)
 
         mock_vs.as_retriever.assert_called_once_with(
@@ -123,7 +123,7 @@ class TestBuildChain:
 
         mock_vs = MagicMock()
 
-        with patch("docagent.retriever.ChatOllama") as MockLLM:
+        with patch("docagent.rag.retriever.ChatOllama") as MockLLM:
             build_chain(mock_vs)
 
         call_kwargs = MockLLM.call_args.kwargs

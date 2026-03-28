@@ -11,8 +11,11 @@ data/chroma_db/
 # PDFs (dados locais)
 data/pdfs/
 
-# Variáveis de ambiente
+# Variáveis de ambiente (apenas *.example são commitados)
 .env
+.env.prod.local
+.env.cloudflare
+.env.*.local
 
 # Build
 dist/

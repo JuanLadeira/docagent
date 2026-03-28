@@ -8,6 +8,7 @@ from docagent.database import Base
 if TYPE_CHECKING:
     from docagent.usuario.models import Usuario
     from docagent.whatsapp.models import WhatsappInstancia
+    from docagent.telegram.models import TelegramInstancia
 
 
 class Tenant(Base):
@@ -25,6 +26,10 @@ class Tenant(Base):
         lazy="selectin",
     )
     whatsapp_instancias: Mapped[list["WhatsappInstancia"]] = relationship(
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+    )
+    telegram_instancias: Mapped[list["TelegramInstancia"]] = relationship(
         back_populates="tenant",
         cascade="all, delete-orphan",
     )

@@ -23,7 +23,7 @@ def make_mock_agent(answer="resposta do agente"):
 
 def make_mock_sessions():
     """Cria um SessionManager mockado."""
-    from docagent.session import SessionManager
+    from docagent.chat.session import SessionManager
     sm = SessionManager()
     return sm
 
@@ -31,7 +31,7 @@ def make_mock_sessions():
 class TestChatServiceStream:
     def test_stream_yields_events_from_agent(self):
         """stream() deve repassar os eventos do agente para o chamador."""
-        from docagent.services.chat_service import ChatService
+        from docagent.chat.service import ChatService
 
         agent = make_mock_agent("resposta teste")
         service = ChatService(agent, make_mock_sessions())
@@ -41,7 +41,7 @@ class TestChatServiceStream:
 
     def test_stream_contains_done_event(self):
         """O stream deve terminar com evento done."""
-        from docagent.services.chat_service import ChatService
+        from docagent.chat.service import ChatService
 
         agent = make_mock_agent()
         service = ChatService(agent, make_mock_sessions())
@@ -51,7 +51,7 @@ class TestChatServiceStream:
 
     def test_stream_calls_agent_with_question(self):
         """stream() deve chamar agent.stream com a pergunta correta."""
-        from docagent.services.chat_service import ChatService
+        from docagent.chat.service import ChatService
 
         agent = make_mock_agent()
         service = ChatService(agent, make_mock_sessions())
@@ -64,8 +64,8 @@ class TestChatServiceStream:
 
     def test_stream_passes_existing_session_state_to_agent(self):
         """stream() deve passar o estado da sessao existente para o agente."""
-        from docagent.services.chat_service import ChatService
-        from docagent.session import SessionManager
+        from docagent.chat.service import ChatService
+        from docagent.chat.session import SessionManager
 
         agent = make_mock_agent()
         sessions = SessionManager()
@@ -81,8 +81,8 @@ class TestChatServiceStream:
 
     def test_stream_updates_session_after_completion(self):
         """Apos o stream, a sessao deve ser atualizada com o estado final."""
-        from docagent.services.chat_service import ChatService
-        from docagent.session import SessionManager
+        from docagent.chat.service import ChatService
+        from docagent.chat.session import SessionManager
 
         agent = make_mock_agent()
         agent.last_state = {"messages": [], "summary": "novo resumo"}
@@ -97,8 +97,8 @@ class TestChatServiceStream:
 class TestChatServiceDeleteSession:
     def test_delete_existing_session_returns_true(self):
         """delete_session() de sessao existente deve retornar True."""
-        from docagent.services.chat_service import ChatService
-        from docagent.session import SessionManager
+        from docagent.chat.service import ChatService
+        from docagent.chat.session import SessionManager
 
         sessions = SessionManager()
         sessions.update("existe", {"messages": [], "summary": ""})
@@ -110,8 +110,8 @@ class TestChatServiceDeleteSession:
 
     def test_delete_nonexistent_session_returns_false(self):
         """delete_session() de sessao inexistente deve retornar False."""
-        from docagent.services.chat_service import ChatService
-        from docagent.session import SessionManager
+        from docagent.chat.service import ChatService
+        from docagent.chat.session import SessionManager
 
         service = ChatService(MagicMock(), SessionManager())
         result = service.delete_session("nao-existe")
@@ -120,8 +120,8 @@ class TestChatServiceDeleteSession:
 
     def test_delete_removes_session_from_manager(self):
         """Apos delete_session(), a sessao nao deve mais existir."""
-        from docagent.services.chat_service import ChatService
-        from docagent.session import SessionManager
+        from docagent.chat.service import ChatService
+        from docagent.chat.session import SessionManager
 
         sessions = SessionManager()
         sessions.update("s", {"messages": [], "summary": ""})

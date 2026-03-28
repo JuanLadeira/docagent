@@ -55,8 +55,16 @@ const router = createRouter({
     },
     {
       path: '/atendimentos',
-      name: 'atendimentos',
+      name: 'atendimentos-whatsapp',
       component: () => import('@/views/atendimento/AtendimentoView.vue'),
+      props: { canal: 'WHATSAPP' },
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/atendimentos/telegram',
+      name: 'atendimentos-telegram',
+      component: () => import('@/views/atendimento/AtendimentoView.vue'),
+      props: { canal: 'TELEGRAM' },
       meta: { requiresAuth: true },
     },
     {
@@ -69,18 +77,6 @@ const router = createRouter({
       path: '/contatos/:id',
       name: 'contato-detalhe',
       component: () => import('@/views/atendimento/ContatoDetalheView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/whatsapp',
-      name: 'whatsapp',
-      component: () => import('@/views/whatsapp/WhatsappView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/mcp-servidores',
-      name: 'mcp-servidores',
-      component: () => import('@/views/McpServidoresView.vue'),
       meta: { requiresAuth: true },
     },
 

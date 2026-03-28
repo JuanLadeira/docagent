@@ -31,13 +31,13 @@ def make_skill_registry(*names):
 
 class TestConfigurableAgentContract:
     def test_is_subclass_of_base_agent(self):
-        from docagent.base_agent import BaseAgent
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.base import BaseAgent
+        from docagent.agent.configurable import ConfigurableAgent
         assert issubclass(ConfigurableAgent, BaseAgent)
 
     def test_can_be_instantiated_with_config(self):
-        from docagent.agents.registry import AgentConfig
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AgentConfig
+        from docagent.agent.configurable import ConfigurableAgent
 
         config = AgentConfig(
             id="test", name="Test", description="desc",
@@ -45,19 +45,19 @@ class TestConfigurableAgentContract:
         )
         registry = make_skill_registry("rag_search")
 
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", registry):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", registry):
             agent = ConfigurableAgent(config)
 
         assert agent is not None
 
     def test_graph_is_none_before_build(self):
-        from docagent.agents.registry import AgentConfig
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AgentConfig
+        from docagent.agent.configurable import ConfigurableAgent
 
         config = AgentConfig(
             id="test", name="Test", description="desc", skill_names=[],
         )
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", {}):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", {}):
             agent = ConfigurableAgent(config)
 
         assert agent._graph is None
@@ -69,8 +69,8 @@ class TestConfigurableAgentContract:
 
 class TestConfigurableAgentTools:
     def _make_agent(self, skill_names, registry=None):
-        from docagent.agents.registry import AgentConfig
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AgentConfig
+        from docagent.agent.configurable import ConfigurableAgent
 
         config = AgentConfig(
             id="test", name="Test", description="desc",
@@ -78,45 +78,45 @@ class TestConfigurableAgentTools:
         )
         reg = registry or make_skill_registry(*skill_names)
 
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", reg):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", reg):
             return ConfigurableAgent(config)
 
     def test_tools_returns_list(self):
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY",
+        with patch("docagent.agent.configurable.SKILL_REGISTRY",
                    make_skill_registry("rag_search")):
             agent = self._make_agent(["rag_search"])
         assert isinstance(agent.tools, list)
 
     def test_doc_analyst_has_two_tools(self):
         """Config doc-analyst com 2 skills deve gerar 2 tools."""
-        from docagent.agents.registry import AGENT_REGISTRY
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AGENT_REGISTRY
+        from docagent.agent.configurable import ConfigurableAgent
 
         config = AGENT_REGISTRY["doc-analyst"]
         registry = make_skill_registry("rag_search", "web_search")
 
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", registry):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", registry):
             agent = ConfigurableAgent(config)
 
         assert len(agent.tools) == 2
 
     def test_web_researcher_has_one_tool(self):
         """Config web-researcher com 1 skill deve gerar 1 tool."""
-        from docagent.agents.registry import AGENT_REGISTRY
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AGENT_REGISTRY
+        from docagent.agent.configurable import ConfigurableAgent
 
         config = AGENT_REGISTRY["web-researcher"]
         registry = make_skill_registry("web_search")
 
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", registry):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", registry):
             agent = ConfigurableAgent(config)
 
         assert len(agent.tools) == 1
 
     def test_tools_calls_as_tool_on_each_skill(self):
         """tools deve chamar as_tool() em cada skill do config."""
-        from docagent.agents.registry import AgentConfig
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AgentConfig
+        from docagent.agent.configurable import ConfigurableAgent
 
         skill_a = make_mock_skill("skill_a")
         skill_b = make_mock_skill("skill_b")
@@ -126,7 +126,7 @@ class TestConfigurableAgentTools:
             id="test", name="Test", description="desc",
             skill_names=["skill_a", "skill_b"],
         )
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", registry):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", registry):
             agent = ConfigurableAgent(config)
             _ = agent.tools
 
@@ -135,8 +135,8 @@ class TestConfigurableAgentTools:
 
     def test_unknown_skill_is_ignored(self):
         """Skill inexistente no registry deve ser ignorada sem erro."""
-        from docagent.agents.registry import AgentConfig
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AgentConfig
+        from docagent.agent.configurable import ConfigurableAgent
 
         config = AgentConfig(
             id="test", name="Test", description="desc",
@@ -144,7 +144,7 @@ class TestConfigurableAgentTools:
         )
         registry = make_skill_registry("rag_search")
 
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", registry):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", registry):
             agent = ConfigurableAgent(config)
 
         assert len(agent.tools) == 1
@@ -156,8 +156,8 @@ class TestConfigurableAgentTools:
 
 class TestConfigurableAgentSystemPrompt:
     def _make_agent(self, skill_names):
-        from docagent.agents.registry import AgentConfig
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AgentConfig
+        from docagent.agent.configurable import ConfigurableAgent
 
         config = AgentConfig(
             id="test", name="Test", description="desc",
@@ -165,7 +165,7 @@ class TestConfigurableAgentSystemPrompt:
         )
         registry = make_skill_registry(*skill_names)
 
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", registry):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", registry):
             return ConfigurableAgent(config)
 
     def test_system_prompt_is_string(self):
@@ -196,25 +196,25 @@ class TestConfigurableAgentSystemPrompt:
 class TestConfigurableAgentSessionCollection:
     def test_accepts_session_collection(self):
         """Deve aceitar collection customizada para RAG da sessao."""
-        from docagent.agents.registry import AgentConfig
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AgentConfig
+        from docagent.agent.configurable import ConfigurableAgent
 
         config = AgentConfig(
             id="test", name="Test", description="desc", skill_names=[],
         )
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", {}):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", {}):
             agent = ConfigurableAgent(config, session_collection="sessao-xyz")
 
         assert agent._session_collection == "sessao-xyz"
 
     def test_default_session_collection_is_none(self):
-        from docagent.agents.registry import AgentConfig
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AgentConfig
+        from docagent.agent.configurable import ConfigurableAgent
 
         config = AgentConfig(
             id="test", name="Test", description="desc", skill_names=[],
         )
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", {}):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", {}):
             agent = ConfigurableAgent(config)
 
         assert agent._session_collection is None

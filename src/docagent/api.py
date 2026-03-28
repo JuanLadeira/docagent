@@ -12,15 +12,15 @@ from fastapi import FastAPI
 from langchain_core.messages import HumanMessage
 from langchain_ollama import ChatOllama
 
-from docagent.routers.chat import router as chat_router
-from docagent.routers.agents import router as agents_router
-from docagent.routers.documents import router as documents_router
+from docagent.chat.router import router as chat_router
+from docagent.rag.router import router as documents_router
 from docagent.auth.router import router as auth_router
 from docagent.tenant.router import router as tenant_router
 from docagent.usuario.router import router as usuario_router
 from docagent.admin.router import router as admin_router
-from docagent.agente.router import router as agente_router
+from docagent.agente.router import router as agente_router, legacy_router as agents_legacy_router
 from docagent.whatsapp.router import router as whatsapp_router
+from docagent.telegram.router import router as telegram_router
 from docagent.atendimento.router import router as atendimento_router
 from docagent.mcp_server.router import router as mcp_router
 
@@ -53,7 +53,6 @@ app = FastAPI(title="DocAgent API", version="3.0.0", lifespan=lifespan)
 
 # RAG + Agentes
 app.include_router(chat_router)
-app.include_router(agents_router)
 app.include_router(documents_router)
 
 # Auth + Multi-tenant SaaS
@@ -62,9 +61,11 @@ app.include_router(tenant_router)
 app.include_router(usuario_router)
 app.include_router(admin_router)
 app.include_router(agente_router)
+app.include_router(agents_legacy_router)
 
 # Canais de atendimento
 app.include_router(whatsapp_router)
+app.include_router(telegram_router)
 app.include_router(atendimento_router)
 
 # MCP — skills dinâmicas

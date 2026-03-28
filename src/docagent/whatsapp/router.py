@@ -14,6 +14,7 @@ Notificações em tempo real (QR code, status):
 """
 import asyncio
 import json
+import re
 from contextlib import AsyncExitStack
 
 import httpx
@@ -23,9 +24,9 @@ from langchain_core.messages import AIMessage
 from sqlalchemy import select
 
 from docagent.agente.models import Agente
-from docagent.agents.configurable_agent import ConfigurableAgent
-from docagent.agents.registry import AgentConfig
-from docagent.base_agent import BaseAgent
+from docagent.agent.configurable import ConfigurableAgent
+from docagent.agent.registry import AgentConfig
+from docagent.agent.base import BaseAgent
 from docagent.atendimento.models import Atendimento, AtendimentoStatus, Contato, MensagemAtendimento, MensagemOrigem
 from docagent.atendimento.sse import atendimento_lista_sse_manager, atendimento_sse_manager
 from docagent.auth.current_user import CurrentUser
@@ -345,12 +346,12 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         if is_lid:
             numero_resolvido = await _resolver_lid_para_numero(evento.instance, remote_jid)
             if numero_resolvido:
-                numero = numero_resolvido
+                numero = re.sub(r"[^\d]", "", numero_resolvido)
                 is_lid = False
             else:
-                numero = remote_jid.replace("@lid", "")
+                numero = re.sub(r"[^\d]", "", remote_jid.replace("@lid", ""))
         else:
-            numero = remote_jid.replace("@s.whatsapp.net", "")
+            numero = re.sub(r"[^\d]", "", remote_jid.replace("@s.whatsapp.net", ""))
 
         conteudo = (
             data.get("message", {}).get("conversation")
@@ -428,7 +429,9 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
                 "id": atendimento.id,
                 "numero": atendimento.numero,
                 "nome_contato": atendimento.nome_contato,
+                "canal": atendimento.canal.value,
                 "instancia_id": atendimento.instancia_id,
+                "telegram_instancia_id": atendimento.telegram_instancia_id,
                 "tenant_id": atendimento.tenant_id,
                 "status": atendimento.status.value,
                 "prioridade": atendimento.prioridade.value,

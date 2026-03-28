@@ -27,8 +27,8 @@ def make_mock_mcp_tool(name="mcp_tool"):
 
 class TestExtraToolsMerge:
     def _make_agent(self, skill_names=None, extra_tools=None, registry=None):
-        from docagent.agents.registry import AgentConfig
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AgentConfig
+        from docagent.agent.configurable import ConfigurableAgent
 
         config = AgentConfig(
             id="test", name="Test", description="desc",
@@ -36,7 +36,7 @@ class TestExtraToolsMerge:
         )
         reg = registry or {}
 
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", reg):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", reg):
             return ConfigurableAgent(config, extra_tools=extra_tools)
 
     def test_extra_tools_none_means_empty(self):
@@ -98,15 +98,15 @@ class TestExtraToolsMerge:
 class TestMcpSkillNamesIgnoredInBuiltin:
     def test_mcp_skill_names_not_in_registry_are_ignored(self):
         """skill_names com prefixo mcp: não estão no SKILL_REGISTRY e devem ser ignoradas."""
-        from docagent.agents.registry import AgentConfig
-        from docagent.agents.configurable_agent import ConfigurableAgent
+        from docagent.agent.registry import AgentConfig
+        from docagent.agent.configurable import ConfigurableAgent
 
         config = AgentConfig(
             id="test", name="Test", description="desc",
             skill_names=["mcp:1:read_file"],
         )
         # SKILL_REGISTRY não tem entries mcp: — devem ser silenciosamente ignorados
-        with patch("docagent.agents.configurable_agent.SKILL_REGISTRY", {}):
+        with patch("docagent.agent.configurable.SKILL_REGISTRY", {}):
             agent = ConfigurableAgent(config, extra_tools=[])
 
         # Sem extra_tools passadas, tools deve ser lista vazia

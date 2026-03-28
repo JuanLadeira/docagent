@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { docagentApi, type Agent } from '@/api/docagent'
+import { api, type Agente } from '@/api/client'
 
 export const useAgentsStore = defineStore('agents', () => {
-  const agents = ref<Agent[]>([])
+  const agents = ref<Agente[]>([])
   const isFetching = ref(false)
   const fetched = ref(false)
 
@@ -11,7 +11,7 @@ export const useAgentsStore = defineStore('agents', () => {
     if (fetched.value || isFetching.value) return
     isFetching.value = true
     try {
-      const res = await docagentApi.getAgents()
+      const res = await api.listAgentes()
       agents.value = res.data
       fetched.value = true
     } catch {

@@ -15,14 +15,14 @@ import {
 
 const router = useRouter()
 
+const props = defineProps<{ canal: 'WHATSAPP' | 'TELEGRAM' }>()
+
 // ── Estado ────────────────────────────────────────────────────────────────────
 
 const ativos = ref<Atendimento[]>([])       // ATIVO + HUMANO
 const historico = ref<Atendimento[]>([])    // ENCERRADO
 const aba = ref<'ativos' | 'historico'>('ativos')
 const carregandoHistorico = ref(false)
-const historicoPaginaAtual = ref(0)
-const HISTORICO_POR_PAGINA = 20
 
 const selecionado = ref<AtendimentoDetalhe | null>(null)
 const carregandoDetalhe = ref(false)
@@ -91,7 +91,7 @@ async function confirmarAdicionarContato() {
       nome: contatoForm.value.nome.trim(),
       email: contatoForm.value.email.trim() || null,
       notas: contatoForm.value.notas.trim() || null,
-      instancia_id: selecionado.value.instancia_id,
+      instancia_id: selecionado.value.instancia_id ?? 0,
     })
     // Recarregar o atendimento para pegar o contato_id atualizado
     const r = await api.getAtendimento(selecionado.value.id)
@@ -111,6 +111,7 @@ function iniciarSseLista() {
     (event) => {
       const at = event.atendimento
       if (!at) return
+      if (at.canal !== props.canal) return
 
       if (event.type === 'NOVO_ATENDIMENTO') {
         if (!ativos.value.find((a) => a.id === at.id)) {
@@ -152,7 +153,7 @@ function iniciarSseLista() {
 
 async function carregarAtivos() {
   try {
-    const r = await api.listAtendimentos()
+    const r = await api.listAtendimentos(undefined, props.canal)
     ativos.value = r.data.filter((a) => a.status !== 'ENCERRADO')
   } catch {
     // silencioso
@@ -163,7 +164,7 @@ async function carregarHistorico() {
   if (carregandoHistorico.value) return
   carregandoHistorico.value = true
   try {
-    const r = await api.listAtendimentos('ENCERRADO')
+    const r = await api.listAtendimentos('ENCERRADO', props.canal)
     historico.value = r.data
   } catch {
     // silencioso
@@ -240,12 +241,13 @@ async function encerrar() {
 async function enviarMensagem() {
   if (!selecionado.value || !mensagemInput.value.trim() || enviando.value) return
   enviando.value = true
+  const conteudo = mensagemInput.value.trim()
+  mensagemInput.value = ''
   try {
-    const r = await api.enviarMensagemOperador(selecionado.value.id, mensagemInput.value.trim())
-    selecionado.value.mensagens.push(r.data)
-    mensagemInput.value = ''
-    await nextTick()
-    scrollToBottom()
+    await api.enviarMensagemOperador(selecionado.value.id, conteudo)
+    // A mensagem chega via SSE (NOVA_MENSAGEM) — não adicionar aqui para evitar duplicata
+  } catch {
+    mensagemInput.value = conteudo
   } finally {
     enviando.value = false
   }
@@ -319,8 +321,11 @@ onUnmounted(() => {
     <!-- Painel esquerdo: lista de atendimentos -->
     <aside class="w-64 flex-shrink-0 border-r border-gray-200 bg-white flex flex-col">
       <div class="p-4 border-b border-gray-200 flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Atendimentos</h2>
+        <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+          {{ props.canal === 'WHATSAPP' ? 'WhatsApp' : 'Telegram' }}
+        </h2>
         <button
+          v-if="props.canal === 'WHATSAPP'"
           class="text-xs px-2 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
           @click="abrirNovaConversa"
         >
@@ -389,6 +394,15 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="mt-0.5 flex items-center gap-1.5 pl-4 flex-wrap">
+            <!-- Canal badge -->
+            <span
+              class="text-xs px-1.5 py-0.5 rounded font-medium"
+              :class="at.canal === 'TELEGRAM'
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-green-100 text-green-700'"
+            >
+              {{ at.canal === 'TELEGRAM' ? 'TG' : 'WA' }}
+            </span>
             <span
               class="text-xs px-1.5 py-0.5 rounded font-medium"
               :class="{
@@ -584,7 +598,7 @@ onUnmounted(() => {
             <div class="text-xs text-gray-400 flex items-center gap-2">
               <span>{{ selecionado.numero }}</span>
               <button
-                v-if="!selecionado.contato_id && selecionado.status !== 'ENCERRADO'"
+                v-if="!selecionado.contato_id && selecionado.status !== 'ENCERRADO' && selecionado.canal !== 'TELEGRAM'"
                 class="text-gray-400 hover:text-indigo-600 transition-colors"
                 @click="abrirAdicionarContato"
               >

@@ -21,9 +21,10 @@ RUN uv sync --no-dev --frozen
 # Copia o codigo fonte
 COPY src/ ./src/
 
-# Copia o entrypoint
+# Copia os entrypoints (dev e prod)
 COPY compose/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY compose/entrypoint.prod.sh /entrypoint.prod.sh
+RUN chmod +x /entrypoint.sh /entrypoint.prod.sh
 
 # Cria o diretorio de dados (ChromaDB e PDFs sao montados via volume)
 RUN mkdir -p data/pdfs data/chroma_db

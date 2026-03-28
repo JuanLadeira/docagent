@@ -26,13 +26,13 @@ class MinimalAgent:
 class TestBaseAgentContract:
     def test_cannot_instantiate_base_agent_directly(self):
         """BaseAgent e abstrata — instanciar diretamente deve lancar TypeError."""
-        from docagent.base_agent import BaseAgent
+        from docagent.agent.base import BaseAgent
         with pytest.raises(TypeError):
             BaseAgent()
 
     def test_subclass_without_tools_cannot_be_instantiated(self):
         """Subclasse sem tools abstrata nao pode ser instanciada."""
-        from docagent.base_agent import BaseAgent
+        from docagent.agent.base import BaseAgent
 
         class IncompleteAgent(BaseAgent):
             @property
@@ -45,7 +45,7 @@ class TestBaseAgentContract:
 
     def test_subclass_without_system_prompt_cannot_be_instantiated(self):
         """Subclasse sem system_prompt abstrato nao pode ser instanciada."""
-        from docagent.base_agent import BaseAgent
+        from docagent.agent.base import BaseAgent
 
         class IncompleteAgent(BaseAgent):
             @property
@@ -58,7 +58,7 @@ class TestBaseAgentContract:
 
     def test_subclass_implementing_both_can_be_instantiated(self):
         """Subclasse com tools e system_prompt implementados pode ser criada."""
-        from docagent.base_agent import BaseAgent
+        from docagent.agent.base import BaseAgent
 
         class CompleteAgent(BaseAgent):
             @property
@@ -74,7 +74,7 @@ class TestBaseAgentContract:
 
     def test_base_agent_is_abstract(self):
         """BaseAgent deve ser subclasse de ABC."""
-        from docagent.base_agent import BaseAgent
+        from docagent.agent.base import BaseAgent
         assert issubclass(BaseAgent, ABC)
 
 
@@ -84,7 +84,7 @@ class TestBaseAgentContract:
 
 class TestBaseAgentBuild:
     def _make_agent(self):
-        from docagent.base_agent import BaseAgent
+        from docagent.agent.base import BaseAgent
 
         class TestAgent(BaseAgent):
             @property
@@ -101,7 +101,7 @@ class TestBaseAgentBuild:
         """build() deve retornar a propria instancia para encadeamento."""
         agent = self._make_agent()
 
-        with patch("docagent.base_agent._build_graph", return_value=MagicMock()):
+        with patch("docagent.agent.base._build_graph", return_value=MagicMock()):
             result = agent.build()
 
         assert result is agent
@@ -110,7 +110,7 @@ class TestBaseAgentBuild:
         """build() deve passar tools e system_prompt para _build_graph."""
         agent = self._make_agent()
 
-        with patch("docagent.base_agent._build_graph") as mock_build:
+        with patch("docagent.agent.base._build_graph") as mock_build:
             mock_build.return_value = MagicMock()
             agent.build()
 
@@ -125,7 +125,7 @@ class TestBaseAgentBuild:
         """Apos build(), o grafo deve estar disponivel."""
         agent = self._make_agent()
 
-        with patch("docagent.base_agent._build_graph", return_value=MagicMock()):
+        with patch("docagent.agent.base._build_graph", return_value=MagicMock()):
             agent.build()
 
         assert agent._graph is not None
@@ -137,7 +137,7 @@ class TestBaseAgentBuild:
 
 class TestBaseAgentRun:
     def _make_built_agent(self):
-        from docagent.base_agent import BaseAgent
+        from docagent.agent.base import BaseAgent
 
         class TestAgent(BaseAgent):
             @property
@@ -165,7 +165,7 @@ class TestBaseAgentRun:
 
     def test_run_raises_if_not_built(self):
         """run() sem build() deve lancar RuntimeError."""
-        from docagent.base_agent import BaseAgent
+        from docagent.agent.base import BaseAgent
 
         class TestAgent(BaseAgent):
             @property
@@ -230,7 +230,7 @@ class TestBaseAgentRun:
 
 class TestBaseAgentStream:
     def _make_built_agent(self, ai_content="resposta final"):
-        from docagent.base_agent import BaseAgent
+        from docagent.agent.base import BaseAgent
 
         class TestAgent(BaseAgent):
             @property
@@ -262,7 +262,7 @@ class TestBaseAgentStream:
 
     def test_stream_raises_if_not_built(self):
         """stream() sem build() deve lancar RuntimeError."""
-        from docagent.base_agent import BaseAgent
+        from docagent.agent.base import BaseAgent
 
         class TestAgent(BaseAgent):
             @property

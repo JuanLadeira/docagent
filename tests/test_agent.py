@@ -5,6 +5,7 @@ Fase 2: AgentState, should_continue, build_graph, run.
 Fase 3: campo summary no estado, injecao de contexto no agent_node,
         summarize_node, persistencia de estado entre turnos.
 """
+import pytest
 from unittest.mock import MagicMock, patch
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 
@@ -35,12 +36,12 @@ def make_tool_call_message() -> AIMessage:
 class TestAgentState:
     def test_has_messages_field(self):
         """messages e obrigatorio e usa add_messages como reducer."""
-        from docagent.agent import AgentState
+        from docagent.agent.base import AgentState
         assert "messages" in AgentState.__annotations__
 
     def test_has_summary_field(self):
         """summary e o campo adicionado na Fase 3 para memoria de longo prazo."""
-        from docagent.agent import AgentState
+        from docagent.agent.base import AgentState
         assert "summary" in AgentState.__annotations__
 
     def test_messages_reducer_accumulates(self):
@@ -102,25 +103,25 @@ class TestShouldContinue:
 class TestBuildGraph:
     def test_graph_has_all_three_nodes(self):
         """Fase 3: grafo deve ter agent, tools E summarize."""
-        with patch("docagent.agent.ChatOllama"):
-            from docagent.agent import build_graph
-            graph = build_graph()
+        with patch("docagent.agent.base.ChatOllama"):
+            from docagent.agent.base import _build_graph as build_graph
+            graph = build_graph([], "")
 
         assert "agent" in graph.nodes
         assert "tools" in graph.nodes
         assert "summarize" in graph.nodes
 
     def test_graph_compiles_without_error(self):
-        with patch("docagent.agent.ChatOllama"):
-            from docagent.agent import build_graph
-            graph = build_graph()
+        with patch("docagent.agent.base.ChatOllama"):
+            from docagent.agent.base import _build_graph as build_graph
+            graph = build_graph([], "")
         assert graph is not None
 
     def test_llm_uses_temperature_zero(self):
         """temperature=0 para decisoes deterministicas."""
-        with patch("docagent.agent.ChatOllama") as MockLLM:
-            from docagent.agent import build_graph
-            build_graph()
+        with patch("docagent.agent.base.ChatOllama") as MockLLM:
+            from docagent.agent.base import _build_graph as build_graph
+            build_graph([], "")
 
         assert MockLLM.called
         assert MockLLM.call_args.kwargs["temperature"] == 0
@@ -142,20 +143,20 @@ class TestAgentNode:
         mock_llm_instance.bind_tools.return_value = mock_llm_instance
         mock_llm_instance.invoke.return_value = AIMessage(content="resposta mock")
 
-        with patch("docagent.agent.ChatOllama", return_value=mock_llm_instance):
-            from docagent.agent import build_graph
+        with patch("docagent.agent.base.ChatOllama", return_value=mock_llm_instance):
+            from docagent.agent.base import _build_graph as build_graph
             # Acessa o agent_node compilado rodando o grafo ate o primeiro passo
-            graph = build_graph()
+            graph = build_graph([], "")
 
         # Chama o agent_node via invoke para isolar apenas esse no
         mock_llm_instance.invoke.reset_mock()
 
         # Extrai o agent_node do grafo e chama diretamente
         # Usamos patch para capturar as mensagens enviadas ao LLM
-        with patch("docagent.agent.ChatOllama", return_value=mock_llm_instance):
-            import docagent.agent as agent_module
+        with patch("docagent.agent.base.ChatOllama", return_value=mock_llm_instance):
+            import docagent.agent.base as agent_module
             # Rebuild para garantir que o mock esta em uso
-            g = agent_module.build_graph()
+            g = agent_module._build_graph([], "")
 
         return mock_llm_instance
 
@@ -172,37 +173,22 @@ class TestAgentNode:
             captured_messages.extend(msgs) or AIMessage(content="ok")
         )
 
-        with patch("docagent.agent.ChatOllama", return_value=mock_llm):
-            import importlib
-            import docagent.agent as agent_module
-            importlib.reload(agent_module)
+        state = {
+            "messages": [HumanMessage(content="nova pergunta")],
+            "summary": "O usuario perguntou sobre RAG anteriormente.",
+        }
 
-            state = {
-                "messages": [HumanMessage(content="nova pergunta")],
-                "summary": "O usuario perguntou sobre RAG anteriormente.",
-            }
+        # Chama a funcao agent_node diretamente via closure
+        # Recriamos a logica aqui para testar em isolamento
+        messages = state["messages"]
+        summary = state.get("summary", "")
 
-            graph = agent_module.build_graph()
-
-        # Invoca apenas o agent_node simulando o estado com summary
-        mock_llm.invoke.reset_mock()
-        captured_messages.clear()
-
-        with patch("docagent.agent.ChatOllama", return_value=mock_llm):
-            import docagent.agent as m
-            importlib.reload(m)
-
-            # Chama a funcao agent_node diretamente via closure
-            # Recriamos a logica aqui para testar em isolamento
-            messages = state["messages"]
-            summary = state.get("summary", "")
-
-            if summary:
-                from langchain_core.messages import HumanMessage as HMsg
-                context_msg = HMsg(content=f"[CONTEXTO DA CONVERSA ANTERIOR]\n{summary}")
-                messages_with_context = [context_msg] + list(messages)
-            else:
-                messages_with_context = messages
+        if summary:
+            from langchain_core.messages import HumanMessage as HMsg
+            context_msg = HMsg(content=f"[CONTEXTO DA CONVERSA ANTERIOR]\n{summary}")
+            messages_with_context = [context_msg] + list(messages)
+        else:
+            messages_with_context = messages
 
         assert len(messages_with_context) == 2
         assert "[CONTEXTO DA CONVERSA ANTERIOR]" in messages_with_context[0].content
@@ -243,7 +229,7 @@ class TestSummarizeNode:
         Historico curto: summarize_node deve retornar dict vazio
         (sem alteracao no estado).
         """
-        from docagent.memory import SUMMARY_THRESHOLD
+        from docagent.agent.memory import SUMMARY_THRESHOLD
 
         # Menos mensagens que o threshold
         few_messages = [
@@ -251,10 +237,10 @@ class TestSummarizeNode:
             AIMessage(content="ola"),
         ]
 
-        with patch("docagent.agent.ChatOllama"):
-            from docagent.agent import build_graph
+        with patch("docagent.agent.base.ChatOllama"):
+            from docagent.agent.base import _build_graph as build_graph
             # Simula chamada ao summarize_node com historico curto
-            from docagent.memory import should_summarize
+            from docagent.agent.memory import should_summarize
             assert should_summarize(few_messages) is False
 
     def test_summarizes_when_above_threshold(self):
@@ -262,7 +248,7 @@ class TestSummarizeNode:
         Historico longo: summarize_node deve chamar summarize_history
         e retornar summary + messages truncadas.
         """
-        from docagent.memory import SUMMARY_THRESHOLD, RECENT_MESSAGES_TO_KEEP
+        from docagent.agent.memory import SUMMARY_THRESHOLD, RECENT_MESSAGES_TO_KEEP
 
         # Mais mensagens que o threshold
         many_messages = []
@@ -272,11 +258,11 @@ class TestSummarizeNode:
                 AIMessage(content=f"resposta {i}"),
             ]
 
-        with patch("docagent.agent.summarize_history", return_value="Resumo gerado.") as mock_summarize, \
-             patch("docagent.agent.trim_messages", return_value=many_messages[-2:]) as mock_trim, \
-             patch("docagent.agent.ChatOllama"):
+        with patch("docagent.agent.base.summarize_history", return_value="Resumo gerado.") as mock_summarize, \
+             patch("docagent.agent.base.trim_messages", return_value=many_messages[-2:]) as mock_trim, \
+             patch("docagent.agent.base.ChatOllama"):
 
-            from docagent.memory import should_summarize
+            from docagent.agent.memory import should_summarize
             assert should_summarize(many_messages) is True
 
             # Verifica que a logica de resumo seria acionada
@@ -288,6 +274,7 @@ class TestSummarizeNode:
 # run — persistencia de estado entre turnos (Fase 3)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="Testa agent.py legado removido — equivalente em test_base_agent.py")
 class TestRun:
     def _make_mock_graph(self, response_content: str = "Resposta.") -> MagicMock:
         mock_graph = MagicMock()

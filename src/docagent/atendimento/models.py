@@ -6,6 +6,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from docagent.database import Base
 
 
+class CanalAtendimento(str, enum.Enum):
+    WHATSAPP = "WHATSAPP"
+    TELEGRAM = "TELEGRAM"
+
+
 class AtendimentoStatus(str, enum.Enum):
     ATIVO = "ATIVO"
     HUMANO = "HUMANO"
@@ -48,8 +53,16 @@ class Atendimento(Base):
 
     numero: Mapped[str] = mapped_column(String(50), nullable=False)
     nome_contato: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    instancia_id: Mapped[int] = mapped_column(
-        ForeignKey("whatsapp_instancia.id", ondelete="CASCADE"), nullable=False
+    canal: Mapped[CanalAtendimento] = mapped_column(
+        Enum(CanalAtendimento, name="canalatendimento"),
+        default=CanalAtendimento.WHATSAPP,
+        nullable=False,
+    )
+    instancia_id: Mapped[int | None] = mapped_column(
+        ForeignKey("whatsapp_instancia.id", ondelete="SET NULL"), nullable=True
+    )
+    telegram_instancia_id: Mapped[int | None] = mapped_column(
+        ForeignKey("telegram_instancia.id", ondelete="SET NULL"), nullable=True
     )
     tenant_id: Mapped[int] = mapped_column(
         ForeignKey("tenant.id", ondelete="CASCADE"), nullable=False

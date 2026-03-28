@@ -15,10 +15,10 @@ from langchain_core.tools import BaseTool
 class TestRagSearchSkill:
     def _make_skill(self, collection="docagent"):
         with (
-            patch("docagent.skills.rag_search.OllamaEmbeddings"),
-            patch("docagent.skills.rag_search.Chroma"),
+            patch("docagent.agent.skills.rag_search.OllamaEmbeddings"),
+            patch("docagent.agent.skills.rag_search.Chroma"),
         ):
-            from docagent.skills.rag_search import RagSearchSkill
+            from docagent.agent.skills.rag_search import RagSearchSkill
             return RagSearchSkill(collection=collection)
 
     def test_name_is_rag_search(self):
@@ -58,8 +58,8 @@ class TestRagSearchSkill:
 
 class TestWebSearchSkill:
     def _make_skill(self):
-        with patch("docagent.skills.web_search.DuckDuckGoSearchRun"):
-            from docagent.skills.web_search import WebSearchSkill
+        with patch("docagent.agent.skills.web_search.DuckDuckGoSearchRun"):
+            from docagent.agent.skills.web_search import WebSearchSkill
             return WebSearchSkill()
 
     def test_name_is_web_search(self):
@@ -80,13 +80,13 @@ class TestWebSearchSkill:
 
     def test_as_tool_returns_base_tool(self):
         """as_tool() deve retornar uma instancia de BaseTool."""
-        with patch("docagent.skills.web_search.DuckDuckGoSearchRun") as mock_cls:
+        with patch("docagent.agent.skills.web_search.DuckDuckGoSearchRun") as mock_cls:
             mock_tool = MagicMock(spec=BaseTool)
             mock_tool.name = "web_search"
             mock_cls.return_value = mock_tool
 
             from importlib import reload
-            import docagent.skills.web_search as ws_mod
+            import docagent.agent.skills.web_search as ws_mod
             reload(ws_mod)
             skill = ws_mod.WebSearchSkill()
             tool = skill.as_tool()
@@ -107,10 +107,10 @@ class TestSkillProtocol:
     def test_rag_search_satisfies_protocol(self):
         """RagSearchSkill deve ter todos os atributos do protocolo Skill."""
         with (
-            patch("docagent.skills.rag_search.OllamaEmbeddings"),
-            patch("docagent.skills.rag_search.Chroma"),
+            patch("docagent.agent.skills.rag_search.OllamaEmbeddings"),
+            patch("docagent.agent.skills.rag_search.Chroma"),
         ):
-            from docagent.skills.rag_search import RagSearchSkill
+            from docagent.agent.skills.rag_search import RagSearchSkill
             skill = RagSearchSkill()
 
         assert hasattr(skill, "name")
@@ -121,8 +121,8 @@ class TestSkillProtocol:
 
     def test_web_search_satisfies_protocol(self):
         """WebSearchSkill deve ter todos os atributos do protocolo Skill."""
-        with patch("docagent.skills.web_search.DuckDuckGoSearchRun"):
-            from docagent.skills.web_search import WebSearchSkill
+        with patch("docagent.agent.skills.web_search.DuckDuckGoSearchRun"):
+            from docagent.agent.skills.web_search import WebSearchSkill
             skill = WebSearchSkill()
 
         assert hasattr(skill, "name")

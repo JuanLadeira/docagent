@@ -28,6 +28,7 @@ dependencies = [
     "pyjwt>=2.12.1",
     "mcp>=1.26.0",
     "langchain-mcp-adapters>=0.2.2",
+    "asyncpg>=0.31.0",
 ]
 
 [build-system]
