@@ -375,7 +375,7 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
             agente = None
             if instancia.agente_id:
                 agente_result = await db.execute(
-                    select(Agente).where(Agente.id == instancia.agente_id, Agente.ativo == True)
+                    select(Agente).where(Agente.id == instancia.agente_id, Agente.ativo.is_(True))
                 )
                 agente = agente_result.scalar_one_or_none()
 
