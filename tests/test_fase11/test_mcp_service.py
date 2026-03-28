@@ -10,7 +10,7 @@ from contextlib import AsyncExitStack
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from docagent.database import Base
-from docagent.mcp_server.models import McpServer, McpTool
+from docagent.mcp_server.models import McpServer
 from docagent.mcp_server.schemas import McpServerCreate, McpServerUpdate
 from docagent.mcp_server.services import McpServerService, load_mcp_tools_for_skills
 

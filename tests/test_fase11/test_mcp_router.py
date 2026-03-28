@@ -6,7 +6,6 @@ Valida CRUD, autenticação e controle de acesso (OWNER only).
 import pytest
 from httpx import AsyncClient
 
-from docagent.mcp_server.models import McpServer
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +167,6 @@ class TestDescobrirTools:
     @pytest.mark.asyncio
     async def test_falha_subprocess_retorna_502(self, client: AsyncClient, auth_headers: dict):
         """Quando o comando MCP não existe, o endpoint retorna 502."""
-        from unittest.mock import patch, AsyncMock
 
         payload = {**_SERVER_PAYLOAD, "command": "comando-que-nao-existe-xyz", "args": []}
         r = await client.post("/api/mcp-servidores", json=payload, headers=auth_headers)

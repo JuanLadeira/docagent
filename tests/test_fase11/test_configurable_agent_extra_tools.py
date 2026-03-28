@@ -3,7 +3,6 @@ Testes para o parâmetro extra_tools do ConfigurableAgent (fase 11).
 
 Valida que tools MCP externas são corretamente mescladas com as skills nativas.
 """
-import pytest
 from unittest.mock import MagicMock, patch
 
 

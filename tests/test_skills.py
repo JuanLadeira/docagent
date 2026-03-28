@@ -3,7 +3,6 @@ Testes TDD para Skills (skills/).
 
 Valida o contrato de cada skill: nome, label, icone, descricao e as_tool().
 """
-import pytest
 from unittest.mock import patch, MagicMock
 from langchain_core.tools import BaseTool
 

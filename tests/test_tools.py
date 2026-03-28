@@ -8,11 +8,10 @@ Estratégia:
   pois o LLM usa esses campos para decidir qual tool chamar.
 """
 import pytest
-
-pytestmark = pytest.mark.skip(reason="tools.py removido — use docagent.agent.skills")
-
 from unittest.mock import MagicMock, patch
 from langchain_core.documents import Document
+
+pytestmark = pytest.mark.skip(reason="tools.py removido — use docagent.agent.skills")
 
 
 class TestRagSearchTool:

@@ -4,7 +4,6 @@ Testes TDD para IngestService (services/ingest_service.py).
 IngestService encapsula o pipeline de ingestao de PDFs recebidos
 como bytes via upload HTTP. Testado com mocks do pipeline existente.
 """
-import pytest
 from unittest.mock import MagicMock, patch
 
 
