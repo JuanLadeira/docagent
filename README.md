@@ -1,6 +1,6 @@
 # DocAgent
 
-Plataforma SaaS de agentes de IA para análise de documentos PDF e pesquisa na web.
+Plataforma SaaS de agentes de IA para análise de documentos PDF e atendimento multicanal (WhatsApp e Telegram).
 Construída em fases progressivas — cada fase adiciona um conceito fundamental sobre agentes, APIs e SaaS.
 
 Tudo roda localmente com [Ollama](https://ollama.com). Sem APIs pagas.
@@ -9,7 +9,7 @@ Tudo roda localmente com [Ollama](https://ollama.com). Sem APIs pagas.
 
 ## Visão Geral
 
-O DocAgent é uma plataforma multi-tenant onde usuários podem conversar com agentes de IA configuráveis, cada um com um conjunto de skills (ferramentas) e um papel (system prompt) definidos pelo operador. Os agentes podem buscar em documentos PDF indexados, pesquisar na web, e atender clientes via WhatsApp com handoff humano.
+O DocAgent é uma plataforma multi-tenant onde usuários podem conversar com agentes de IA configuráveis, cada um com um conjunto de skills (ferramentas) e um papel (system prompt) definidos pelo operador. Os agentes podem buscar em documentos PDF indexados, pesquisar na web, e atender clientes via WhatsApp e Telegram com handoff humano.
 
 ---
 
@@ -28,7 +28,8 @@ O DocAgent é uma plataforma multi-tenant onde usuários podem conversar com age
 | Frontend | Vue 3 + Pinia + Vue Router + Tailwind CSS v4 |
 | UI alternativa | Streamlit |
 | Canal WhatsApp | Evolution API v2 (self-hosted) |
-| Banco relacional | PostgreSQL (Evolution API) / SQLite (DocAgent dev) |
+| Canal Telegram | Telegram Bot API (direto, sem intermediário) |
+| Proxy reverso (prod) | Traefik v3 + Let's Encrypt ACME |
 | Infraestrutura | Docker Compose + uv |
 | Observabilidade | LangSmith (opcional) |
 
@@ -111,11 +112,10 @@ Interface web profissional substituindo o Streamlit como frontend principal.
 - Axios com interceptors (Bearer token + redirect 401)
 - Chat com streaming SSE via `fetch` + `ReadableStream`
 - Upload de PDF inline
-- Seleção de agente na sidebar
 - Painel admin separado (`/sys-mgmt`)
-- Gerenciamento de agentes (CRUD com seleção de skills)
+- CRUD de agentes com seleção de skills
 
-### Fase 11 — MCP: Skills Dinâmicas `[planejada]`
+### Fase 11 — MCP: Skills Dinâmicas `[concluída]`
 Integração com o Model Context Protocol para adicionar tools sem escrever código.
 
 - Registro de servidores MCP no banco (transporte stdio)
@@ -132,13 +132,6 @@ Canal de atendimento via WhatsApp usando a Evolution API v2 (self-hosted).
 - Envio de respostas do agente de volta ao WhatsApp
 - Sessão de conversa por número de telefone (`whatsapp:{numero}`)
 
-### Fase 12b — Evolution API v2 `[concluída]`
-Migração para a versão 2.3.7 da Evolution API (quebra de compatibilidade com v1).
-
-- Dockerfile local da Evolution API v2 com build parametrizado
-- PostgreSQL como banco de persistência da Evolution API
-- Adaptação do webhook, criação de instância e envio de mensagem para a nova API
-
 ### Fase 13 — Atendimento WhatsApp (TDD) `[concluída]`
 Camada de gestão de atendimentos com histórico persistido e handoff humano.
 
@@ -147,7 +140,6 @@ Camada de gestão de atendimentos com histórico persistido e handoff humano.
 - Webhook estendido: cria/retoma atendimento a cada mensagem recebida
 - Quando `HUMANO`, agente não é acionado — operador assume o controle
 - SSE por `atendimento_id` para mensagens em tempo real no frontend
-- Painel Vue.js com bolhas de chat, badges de status e botões de handoff
 - 25 testes TDD (SSE, services, router, webhook)
 
 ### Fase 14 — Tempo Real, Contatos e Otimizações `[concluída]`
@@ -155,12 +147,42 @@ Melhorias de UX, módulo de contatos e redução de latência do agente.
 
 - **SSE tenant-level**: lista de atendimentos atualizada em push (sem polling)
 - **Reconexão automática**: backoff exponencial 2s→30s com refetch ao reconectar
-- **Banner de status**: indica "Conectando..." / "Reconectando..." na lista
-- **Módulo Contatos**: cadastro de contatos com auto-link retroativo a atendimentos
-- **ContatoView / ContatoDetalheView**: lista com busca e histórico por contato
+- **Módulo Contatos**: cadastro com auto-link retroativo a atendimentos
 - **Keep model warm**: warmup do Ollama no startup elimina cold start
 - **Thread pool**: `agent.run()` via `run_in_executor` libera o event loop
-- **Agent cache**: `ConfigurableAgent` cacheado por chave de configuração
+
+### Fase 15 — RAG por Agente e Documentos `[concluída]`
+Documentos indexados por agente em vez de collection global.
+
+- Upload de PDFs vinculado ao `agente_id`: `POST /api/agentes/{id}/documentos`
+- `rag_search` usa a collection do agente em uso na conversa
+- Interface de documentos na página de edição do agente
+
+### Fase 16 — Telegram + UI Refatorada + Infra de Produção `[concluída]`
+Segundo canal de atendimento, UI reorganizada e stack de produção completo.
+
+**Telegram:**
+- Integração direta com Telegram Bot API (sem intermediário)
+- Múltiplos bots por tenant (`TelegramInstancia`) com flag `cria_atendimentos`
+  - `True` → cria fila de atendimento com handoff humano
+  - `False` → agente responde diretamente (modo bot simples)
+- `TelegramAtendimentoService` canal-específico
+
+**Separação de serviços de atendimento:**
+- `WhatsappAtendimentoService` — `criar_ou_retomar`, `iniciar_conversa`, `enviar_mensagem_operador` via Evolution API
+- `TelegramAtendimentoService` — idem para Telegram Bot API
+- `AtendimentoService` (base) — `assumir`, `devolver`, `encerrar`, `listar(canal?)` — sem dependência de canal
+- Normalização de números de telefone (strip de formatação) para evitar duplicatas
+
+**UI refatorada:**
+- Sidebar: "Atendimentos WA" (`/atendimentos`) e "Atendimentos TG" (`/atendimentos/telegram`) como views separadas
+- `AtendimentoView.vue` recebe prop `canal` — listagem e SSE filtrados por canal
+- `/configuracoes`: 4 abas — Perfil / WhatsApp / Telegram / Servidores MCP
+
+**Infraestrutura de produção:**
+- `docker-compose.prod.yml`: Traefik v3 + Let's Encrypt ACME, PostgreSQL, nginx SPA
+- `docker-compose.prod.local.yml`: versão sem SSL para testes locais
+- `compose/entrypoint.prod.sh`: `alembic upgrade head` em vez de `create_all`
 
 ---
 
@@ -180,74 +202,124 @@ ollama pull nomic-embed-text
 
 ## Instalação e Uso
 
-### Com Docker Compose (recomendado)
+### Desenvolvimento (Docker Compose)
 
 ```bash
 git clone https://github.com/JuanLadeira/docagent.git
 cd docagent
-cp .env.example .env  # ajuste as variáveis
+cp .env.example .env  # ajuste as variáveis se necessário
 
 docker compose up -d
+docker compose logs -f api  # acompanhar logs
 ```
 
 Serviços:
-- **API**: `http://localhost:8000` — FastAPI + docs em `/docs`
-- **Frontend**: `http://localhost:5173` — Vue.js
-- **Streamlit**: `http://localhost:8501` — UI alternativa
-- **Evolution API**: `http://localhost:8080` — gateway WhatsApp
-- **PostgreSQL**: porta 5432 (interno, usado pela Evolution API)
+| Serviço | URL | Descrição |
+|---------|-----|-----------|
+| API | `http://localhost:8000` | FastAPI (docs em `/docs`) |
+| Frontend | `http://localhost:5173` | Vue.js dev server |
+| Streamlit | `http://localhost:8501` | UI alternativa |
+| Evolution API | `http://localhost:8080` | Gateway WhatsApp |
 
-O container da API cria as tabelas e o usuário padrão automaticamente no primeiro boot.
+### Produção local (teste do stack prod sem SSL)
 
-### Localmente (sem Docker)
+Para validar o docker-compose de produção na sua máquina antes de subir em servidor:
+
+```bash
+cp .env.prod.example .env.prod.local
+# edite .env.prod.local com suas senhas de teste
+
+# primeira vez — faz o build das imagens
+docker compose -f docker-compose.prod.local.yml --env-file .env.prod.local build
+
+# sobe o stack
+docker compose -f docker-compose.prod.local.yml --env-file .env.prod.local up -d
+
+# acompanhar logs
+docker compose -f docker-compose.prod.local.yml --env-file .env.prod.local logs -f api
+```
+
+Serviços disponíveis:
+| Serviço | URL | Descrição |
+|---------|-----|-----------|
+| Frontend | `http://localhost` (porta 80) | nginx servindo a SPA Vue |
+| API | `http://localhost:8000` | FastAPI com PostgreSQL |
+| Evolution API | `http://localhost:8080` | Gateway WhatsApp |
+
+> **Nota:** O frontend em produção faz proxy das rotas `/api/`, `/auth/`, `/chat/` etc. para `http://api:8000` internamente. Acesse tudo pela porta 80.
+
+Para limpar os volumes ao finalizar:
+```bash
+docker compose -f docker-compose.prod.local.yml --env-file .env.prod.local down -v
+```
+
+### Produção (servidor real com domínio)
+
+```bash
+cp .env.prod.example .env.prod
+# preencha: DOMAIN, ACME_EMAIL, SECRET_KEY, senhas, etc.
+
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+```
+
+Requer:
+- Domínio apontando para o servidor (DNS)
+- Portas 80 e 443 abertas no firewall
+- Traefik emitirá o certificado SSL automaticamente via Let's Encrypt
+
+### Localmente sem Docker
 
 ```bash
 uv sync
-
-# Ingerir PDFs
-uv run python -m docagent.ingest
 
 # Rodar a API
 uv run uvicorn docagent.api:app --reload --port 8000
 
 # Rodar o frontend
 cd frontend && npm install && npm run dev
+```
 
-# Rodar o Streamlit
-uv run streamlit run src/docagent/ui.py
+---
+
+## Testes
+
+```bash
+uv run pytest tests/ -v                           # todos os testes
+uv run pytest tests/test_atendimento/ -v          # atendimentos
+uv run pytest tests/test_telegram/ -v             # Telegram
+uv run pytest tests/test_fase11/ -v               # MCP
+uv run pytest tests/test_fase8/ -v                # auth + tenant
 ```
 
 ---
 
 ## Configuração
 
-Crie um `.env` na raiz com:
+### Dev (`.env`)
 
 ```env
-# LLM
 OLLAMA_BASE_URL=http://localhost:11434
 LLM_MODEL=qwen2.5:7b
 EMBED_MODEL=nomic-embed-text
-CHROMA_PATH=./data/chroma_db
-
-# Banco de dados
-DOCAGENT_DB_URL=sqlite+aiosqlite:///./docagent.db
-
-# Auth
 SECRET_KEY=troque-em-producao
-ACCESS_TOKEN_EXPIRE_MINUTES=60
-
-# Usuário padrão (criado no primeiro boot)
 ADMIN_DEFAULT_USERNAME=admin
 ADMIN_DEFAULT_PASSWORD=admin
-
-# Evolution API (WhatsApp)
 EVOLUTION_API_KEY=changeme
-
-# Observabilidade (opcional)
-LANGSMITH_API_KEY=
-LANGSMITH_PROJECT=docagent
 ```
+
+### Produção (`.env.prod.local` ou `.env.prod`)
+
+Copie de `.env.prod.example` e preencha. As variáveis principais:
+
+| Variável | Descrição |
+|----------|-----------|
+| `DOMAIN` | Domínio principal (ex: `meusite.com`) |
+| `ACME_EMAIL` | E-mail para Let's Encrypt (só prod real) |
+| `SECRET_KEY` | Chave JWT — gere com `openssl rand -hex 32` |
+| `POSTGRES_PASSWORD` | Senha do banco DocAgent |
+| `POSTGRES_EVOLUTION_PASSWORD` | Senha do banco Evolution API |
+| `EVOLUTION_API_KEY` | Chave da Evolution API |
+| `OLLAMA_BASE_URL` | URL do Ollama (ex: `http://host.docker.internal:11434`) |
 
 ---
 
@@ -256,45 +328,46 @@ LANGSMITH_PROJECT=docagent
 ```
 docagent/
 ├── compose/
-│   ├── Dockerfile          # imagem Python (api + streamlit)
-│   └── entrypoint.sh       # cria tabelas e usuário padrão no boot
-├── data/
-│   ├── pdfs/               # PDFs para ingestão (ignorado pelo git)
-│   └── chroma_db/          # vector store persistido (ignorado pelo git)
-├── docs/                   # design docs por fase
-├── frontend/               # Vue.js SPA
+│   ├── Dockerfile              # imagem Python (api + streamlit)
+│   ├── entrypoint.sh           # dev: create_all + seeds
+│   └── entrypoint.prod.sh      # prod: alembic upgrade head + seeds
+├── frontend/
 │   ├── src/
-│   │   ├── api/            # Axios client + tipos TypeScript
-│   │   ├── stores/         # Pinia (auth, chat, agentes)
-│   │   ├── router/         # Vue Router com guards
-│   │   └── views/          # páginas (auth, chat, agentes, admin, user)
-│   ├── Dockerfile
-│   └── vite.config.ts
+│   │   ├── api/                # Axios client + tipos TypeScript
+│   │   ├── stores/             # Pinia (auth)
+│   │   ├── router/             # Vue Router com guards
+│   │   └── views/              # páginas (auth, chat, agentes, atendimento, admin)
+│   │       ├── atendimento/    # AtendimentoView (prop canal), ContatoView
+│   │       ├── agentes/        # AgentesView, AgenteFormView
+│   │       ├── user/           # SettingsView (abas: perfil/whatsapp/telegram/mcp)
+│   │       └── telegram/       # TelegramView
+│   ├── Dockerfile              # dev (Vite)
+│   ├── Dockerfile.prod         # prod (build + nginx)
+│   └── nginx.conf              # SPA routing + proxy para API
 ├── src/docagent/
-│   ├── api.py              # assembly do FastAPI app
-│   ├── base_agent.py       # BaseAgent abstrato (LangGraph)
-│   ├── database.py         # SQLAlchemy async setup
-│   ├── settings.py         # configurações via env vars
-│   ├── session.py          # SessionManager (histórico de conversa)
-│   ├── memory.py           # lógica de summarize
-│   ├── ingest.py           # pipeline de ingestão de PDFs
-│   ├── ui.py               # interface Streamlit
-│   ├── agente/             # CRUD de agentes (DB)
-│   ├── agents/             # ConfigurableAgent + AgentRegistry
-│   ├── skills/             # SKILL_REGISTRY (rag_search, web_search)
-│   ├── routers/            # chat, agents, documents
-│   ├── services/           # ChatService, IngestService
-│   ├── schemas/            # Pydantic schemas
-│   ├── auth/               # JWT, security, router
-│   ├── usuario/            # model, service, router
-│   ├── tenant/             # model, service, router
-│   ├── admin/              # model, router (admin separado)
-│   ├── whatsapp/           # instâncias, webhook, cliente Evolution API
-│   └── atendimento/        # models, services, router, SSE, schemas
+│   ├── api.py                  # assembly do FastAPI app
+│   ├── base_agent.py           # BaseAgent abstrato (LangGraph)
+│   ├── agente/                 # CRUD de agentes (DB)
+│   ├── agents/                 # ConfigurableAgent + AgentRegistry
+│   ├── skills/                 # SKILL_REGISTRY (rag_search, web_search)
+│   ├── auth/                   # JWT, security, router
+│   ├── usuario/                # model, service, router
+│   ├── tenant/                 # model, service, router
+│   ├── mcp_server/             # registro MCP, descoberta de tools
+│   ├── whatsapp/               # instâncias WA, webhook, Evolution API client
+│   │   └── atendimento_service.py  # WhatsappAtendimentoService
+│   ├── telegram/               # instâncias TG, webhook, Telegram Bot API client
+│   │   └── atendimento_service.py  # TelegramAtendimentoService
+│   └── atendimento/            # AtendimentoService (base), models, router, SSE
 ├── tests/
-├── alembic/                # migrações de banco
-├── docker-compose.yml
-└── pyproject.toml
+│   ├── test_atendimento/       # services, router, SSE, webhook WA
+│   └── test_telegram/          # models, services, router, webhook TG
+├── alembic/                    # migrações de banco
+├── docker-compose.yml          # desenvolvimento
+├── docker-compose.prod.yml     # produção (Traefik + SSL)
+├── docker-compose.prod.local.yml  # teste local do stack prod (sem SSL)
+├── .env.example                # template dev
+└── .env.prod.example           # template produção
 ```
 
 ---
@@ -304,18 +377,19 @@ docagent/
 | Método | Path | Descrição |
 |--------|------|-----------|
 | POST | `/auth/login` | Login (form data) → JWT |
-| GET | `/auth/me` | Dados do usuário autenticado |
+| GET | `/api/usuarios/me` | Dados do usuário autenticado |
 | POST | `/chat` | Chat SSE com agente |
-| GET | `/agents` | Lista agentes ativos |
-| POST | `/documents/upload` | Indexa PDF no ChromaDB |
 | GET | `/api/agentes/` | CRUD de agentes |
-| GET | `/api/usuarios/` | CRUD de usuários |
-| GET | `/api/admin/tenants` | Painel admin — tenants |
+| POST | `/api/agentes/{id}/documentos` | Upload PDF vinculado ao agente |
+| GET | `/api/mcp-servidores` | CRUD de servidores MCP |
 | GET | `/api/whatsapp/instancias` | CRUD de instâncias WhatsApp |
-| GET | `/api/whatsapp/instancias/{id}/eventos` | SSE — QR code e status de conexão |
 | POST | `/api/whatsapp/webhook` | Receptor de eventos da Evolution API |
-| GET | `/api/atendimentos` | Lista atendimentos do tenant |
+| GET | `/api/whatsapp/instancias/{id}/eventos` | SSE — QR code e status |
+| GET | `/api/telegram/instancias` | CRUD de bots Telegram |
+| POST | `/api/telegram/webhook/{token}` | Receptor de updates do Telegram |
+| GET | `/api/atendimentos?canal=WHATSAPP\|TELEGRAM` | Lista atendimentos (filtro por canal) |
 | GET | `/api/atendimentos/eventos` | SSE — atualizações de lista em tempo real |
+| POST | `/api/atendimentos` | Inicia conversa WhatsApp manualmente |
 | POST | `/api/atendimentos/{id}/assumir` | Operador assume o atendimento |
 | POST | `/api/atendimentos/{id}/devolver` | Devolve ao agente |
 | POST | `/api/atendimentos/{id}/encerrar` | Encerra atendimento |
@@ -323,26 +397,3 @@ docagent/
 | GET | `/health` | Health check |
 
 Documentação interativa disponível em `http://localhost:8000/docs`.
-
----
-
-## Documentação de Design
-
-Cada fase tem um documento detalhado em `docs/`:
-
-| Arquivo | Conteúdo |
-|---------|----------|
-| `fase1-design.md` | RAG pipeline: chunks, embeddings, LCEL chain |
-| `fase2-design.md` | Agente ReAct: StateGraph, nós, aresta condicional |
-| `fase3-design.md` | Memória: summarize node, threshold, injeção de contexto |
-| `fase4-design.md` | API FastAPI: SSE, streaming, Docker |
-| `fase5-design.md` | BaseAgent + Services: template method, injeção de dependência |
-| `fase6-design.md` | Skills + Registry: plugabilidade, ConfigurableAgent |
-| `fase7-design.md` | Streamlit: agent selector, upload, spinner |
-| `fase8-design.md` | Auth + multi-tenant: JWT, roles, Alembic |
-| `fase9-design.md` | Planos e assinaturas (planejado) |
-| `fase10-design.md` | Frontend Vue.js: Pinia, Router, SSE streaming |
-| `fase11-design.md` | MCP: skills dinâmicas via Model Context Protocol (planejado) |
-| `fase12-design.md` | Integração WhatsApp: Evolution API, webhook, SSE de QR code |
-| `fase13-design.md` | Atendimento WhatsApp: máquina de estados, TDD, handoff humano |
-| `fase14-design.md` | SSE tenant-level, módulo Contatos, otimizações de latência |
