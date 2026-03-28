@@ -3,8 +3,7 @@ Testes TDD para SessionManager (session.py).
 
 SessionManager e puro Python sem dependencias externas — totalmente testavel.
 """
-import pytest
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage
 
 
 class TestSessionManagerGet:

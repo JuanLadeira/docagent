@@ -4,7 +4,6 @@ Testes TDD para o registry de agentes (agents/registry.py).
 Valida que o AGENT_REGISTRY tem os agentes esperados e que
 cada AgentConfig referencia skills validas.
 """
-import pytest
 
 
 class TestAgentConfig:

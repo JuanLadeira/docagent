@@ -6,7 +6,6 @@ Estratégia:
 - load_vectorstore e build_chain dependem de Ollama/ChromaDB — testadas com mocks.
 - ask é testada verificando que as peças (chain.invoke, retriever.invoke) são chamadas.
 """
-import pytest
 from unittest.mock import MagicMock, patch
 from langchain_core.documents import Document
 

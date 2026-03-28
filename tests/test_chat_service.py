@@ -5,9 +5,7 @@ ChatService orquestra BaseAgent + SessionManager sem conhecimento de HTTP.
 Testado com mocks das duas dependencias.
 """
 import json
-import pytest
 from unittest.mock import MagicMock
-from langchain_core.messages import AIMessage
 
 
 def make_mock_agent(answer="resposta do agente"):

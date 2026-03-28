@@ -24,11 +24,4 @@ jobs:
         run: uv sync --dev --frozen
 
       - name: Run unit tests
-        run: |
-          uv run pytest \
-            tests/test_fase11/ \
-            tests/test_fase8/ \
-            tests/test_configurable_agent.py \
-            tests/test_skills.py \
-            tests/test_agent_registry.py \
-            -v --tb=short
+        run: uv run pytest tests/ -v --tb=short

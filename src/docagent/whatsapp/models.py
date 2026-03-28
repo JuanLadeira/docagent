@@ -8,7 +8,6 @@ from docagent.database import Base
 
 if TYPE_CHECKING:
     from docagent.tenant.models import Tenant
-    from docagent.agente.models import Agente
 
 
 class ConexaoStatus(str, enum.Enum):

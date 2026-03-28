@@ -4,7 +4,7 @@ IngestService e delete_document_from_vectorstore são mockados.
 """
 import pytest
 import pytest_asyncio
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from docagent.agente.documento_service import DocumentoService

@@ -4,7 +4,6 @@ Testes TDD para ConfigurableAgent (agents/configurable_agent.py).
 Valida que ConfigurableAgent monta tools dinamicamente a partir
 do AgentConfig e gera um system_prompt descrevendo as skills ativas.
 """
-import pytest
 from unittest.mock import MagicMock, patch
 
 
