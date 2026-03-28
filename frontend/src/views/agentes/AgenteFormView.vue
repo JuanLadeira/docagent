@@ -366,7 +366,7 @@ onMounted(load)
 
             <div v-else class="text-xs text-slate-400 py-2">
               Nenhum servidor MCP com tools descobertas. Acesse
-              <RouterLink to="/mcp-servidores" class="text-indigo-500 underline">Servidores MCP</RouterLink>
+              <RouterLink to="/servidores-mcp" class="text-indigo-500 underline">Servidores MCP</RouterLink>
               para configurar.
             </div>
           </div>

@@ -54,6 +54,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/servidores-mcp',
+      name: 'servidores-mcp',
+      component: () => import('@/views/McpServidoresView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/atendimentos',
       name: 'atendimentos-whatsapp',
       component: () => import('@/views/atendimento/AtendimentoView.vue'),
