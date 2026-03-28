@@ -253,7 +253,38 @@ Para limpar os volumes ao finalizar:
 docker compose -f docker-compose.prod.local.yml --env-file .env.prod.local down -v
 ```
 
-### Produção (servidor real com domínio)
+### Produção com Cloudflare Tunnel (recomendado para home server)
+
+Ideal para rodar no próprio PC sem abrir portas no roteador, sem IP fixo e sem problema de CGNAT. O tunnel `cloudflared` abre uma conexão de saída para a Cloudflare — o tráfego do domínio chega pelo tunnel direto para o nginx do frontend, que já faz proxy das rotas `/api/` para a API internamente.
+
+**Pré-requisito:** domínio com DNS gerenciado pela Cloudflare (o registrador pode ser qualquer um — basta apontar os nameservers).
+
+**Passo 1 — Criar o tunnel no painel da Cloudflare:**
+1. Acesse [one.dash.cloudflare.com](https://one.dash.cloudflare.com) → Zero Trust → Networks → Tunnels
+2. Create a tunnel → tipo **Cloudflared** → nome `docagent`
+3. Copie o token exibido (começa com `eyJ...`)
+4. Configure as **Public Hostnames**:
+   - `seudominio.com` → `http://frontend:80`
+   - `evolution.seudominio.com` → `http://evolution-api:8080` *(opcional)*
+
+**Passo 2 — Subir o stack:**
+
+```bash
+cp .env.cloudflare.example .env.cloudflare
+# edite .env.cloudflare: DOMAIN, CLOUDFLARE_TUNNEL_TOKEN, SECRET_KEY, senhas
+
+docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare up -d
+docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare logs -f
+```
+
+Sem abrir porta no roteador. SSL gerenciado pela Cloudflare. Funciona de qualquer PC com Docker e Ollama rodando.
+
+Para derrubar:
+```bash
+docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare down
+```
+
+### Produção com Traefik (VPS / servidor com IP público)
 
 ```bash
 cp .env.prod.example .env.prod
@@ -263,9 +294,9 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
 Requer:
-- Domínio apontando para o servidor (DNS)
+- Domínio apontando para o IP do servidor (DNS)
 - Portas 80 e 443 abertas no firewall
-- Traefik emitirá o certificado SSL automaticamente via Let's Encrypt
+- Traefik emite o certificado SSL automaticamente via Let's Encrypt
 
 ### Localmente sem Docker
 
@@ -363,11 +394,13 @@ docagent/
 │   ├── test_atendimento/       # services, router, SSE, webhook WA
 │   └── test_telegram/          # models, services, router, webhook TG
 ├── alembic/                    # migrações de banco
-├── docker-compose.yml          # desenvolvimento
-├── docker-compose.prod.yml     # produção (Traefik + SSL)
-├── docker-compose.prod.local.yml  # teste local do stack prod (sem SSL)
-├── .env.example                # template dev
-└── .env.prod.example           # template produção
+├── docker-compose.yml              # desenvolvimento
+├── docker-compose.prod.yml         # produção (Traefik + SSL — VPS)
+├── docker-compose.prod.local.yml   # teste local do stack prod (sem SSL)
+├── docker-compose.cloudflare.yml   # produção via Cloudflare Tunnel (home server)
+├── .env.example                    # template dev
+├── .env.prod.example               # template produção Traefik
+└── .env.cloudflare.example         # template produção Cloudflare Tunnel
 ```
 
 ---

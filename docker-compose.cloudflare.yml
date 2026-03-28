@@ -1,0 +1,140 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# docker-compose.cloudflare.yml
+#
+# Stack de produção com Cloudflare Tunnel.
+# Sem Traefik, sem SSL manual — Cloudflare cuida de tudo.
+#
+# Fluxo:
+#   Internet → Cloudflare → cloudflared (tunnel) → frontend:80 (nginx)
+#                                                        └─ /api/* → api:8000
+#
+# Uso:
+#   docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare up -d
+#   docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare logs -f
+#   docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare down -v
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  postgres-evolution:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_EVOLUTION_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_EVOLUTION_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - postgres_evolution_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_EVOLUTION_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: compose/Dockerfile
+    entrypoint: /entrypoint.prod.sh
+    command: uv run uvicorn docagent.api:app --host 0.0.0.0 --port 8000 --workers 2
+    volumes:
+      - ./data:/app/data
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    environment:
+      DOCAGENT_DB_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      WEBHOOK_BASE_URL: "https://${DOMAIN}"
+      FRONTEND_URL: "https://${DOMAIN}"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL}"
+      LLM_MODEL: "${LLM_MODEL}"
+      EMBED_MODEL: "${EMBED_MODEL}"
+      SECRET_KEY: "${SECRET_KEY}"
+      EVOLUTION_API_URL: "http://evolution-api:8080"
+      EVOLUTION_API_KEY: "${EVOLUTION_API_KEY}"
+      ADMIN_DEFAULT_USERNAME: "${ADMIN_DEFAULT_USERNAME}"
+      ADMIN_DEFAULT_PASSWORD: "${ADMIN_DEFAULT_PASSWORD}"
+      LANGSMITH_API_KEY: "${LANGSMITH_API_KEY:-}"
+      LANGSMITH_PROJECT: "${LANGSMITH_PROJECT:-docagent}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    depends_on:
+      - api
+    networks:
+      - internal
+    restart: unless-stopped
+
+  evolution-api:
+    build:
+      context: ./evolution-api
+      dockerfile: Dockerfile
+      args:
+        VERSION: "2.3.7"
+    environment:
+      SERVER_URL: "https://evolution.${DOMAIN}"
+      AUTHENTICATION_API_KEY: "${EVOLUTION_API_KEY}"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: "postgresql://${POSTGRES_EVOLUTION_USER}:${POSTGRES_EVOLUTION_PASSWORD}@postgres-evolution:5432/evolution"
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_client
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_HISTORIC: "true"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+    depends_on:
+      postgres-evolution:
+        condition: service_healthy
+    volumes:
+      - evolution_data:/evolution/instances
+    networks:
+      - internal
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+    networks:
+      - internal
+    restart: unless-stopped
+
+networks:
+  internal:
+    external: false
+
+volumes:
+  postgres_data:
+  postgres_evolution_data:
+  evolution_data:
