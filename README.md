@@ -257,15 +257,15 @@ docker compose -f docker-compose.prod.local.yml --env-file .env.prod.local down 
 
 Ideal para rodar no próprio PC sem abrir portas no roteador, sem IP fixo e sem problema de CGNAT. O tunnel `cloudflared` abre uma conexão de saída para a Cloudflare — o tráfego do domínio chega pelo tunnel direto para o nginx do frontend, que já faz proxy das rotas `/api/` para a API internamente.
 
-**Pré-requisito:** domínio com DNS gerenciado pela Cloudflare (o registrador pode ser qualquer um — basta apontar os nameservers).
+**Pré-requisito:** domínio com DNS gerenciado pela Cloudflare. O domínio oficial do projeto é **z3ndocs.uk** (registrado via Cloudflare Registrar — ~£5/ano).
 
 **Passo 1 — Criar o tunnel no painel da Cloudflare:**
 1. Acesse [one.dash.cloudflare.com](https://one.dash.cloudflare.com) → Zero Trust → Networks → Tunnels
 2. Create a tunnel → tipo **Cloudflared** → nome `docagent`
 3. Copie o token exibido (começa com `eyJ...`)
 4. Configure as **Public Hostnames**:
-   - `seudominio.com` → `http://frontend:80`
-   - `evolution.seudominio.com` → `http://evolution-api:8080` *(opcional)*
+   - `z3ndocs.uk` → `http://frontend:80`
+   - `evolution.z3ndocs.uk` → `http://evolution-api:8080` *(opcional)*
 
 **Passo 2 — Subir o stack:**
 
