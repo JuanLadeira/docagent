@@ -28,6 +28,10 @@ dependencies = [
     "pyjwt>=2.12.1",
     "mcp>=1.26.0",
     "langchain-mcp-adapters>=0.2.2",
+    "langchain-openai>=0.3.0",
+    "langchain-groq>=0.3.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-google-genai>=2.0.0",
     "asyncpg>=0.31.0",
 ]
 
@@ -54,8 +58,9 @@ dev        = "docker compose -f docker-compose.yml --env-file .env up"
 dev-build  = "docker compose -f docker-compose.yml --env-file .env up --build"
 dev-down   = "docker compose -f docker-compose.yml --env-file .env down"
 prod       = "docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare up"
-prod-build = "docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare up --build"
+prod-build = "docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare up --build -d"
 prod-down  = "docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare down"
+prod-logs  = "docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare logs"
 test       = "pytest tests/ -v --tb=short"
 lint       = "ruff check src/ tests/"
 lint-fix   = "ruff check src/ tests/ --fix"
