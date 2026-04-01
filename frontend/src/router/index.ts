@@ -113,6 +113,11 @@ const router = createRouter({
           name: 'admin-assinaturas',
           component: () => import('@/views/admin/AdminAssinaturasView.vue'),
         },
+        {
+          path: 'configuracoes',
+          name: 'admin-configuracoes',
+          component: () => import('@/views/admin/AdminConfigView.vue'),
+        },
       ],
     },
   ],

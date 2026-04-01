@@ -24,7 +24,7 @@ async function handleSubmit() {
       <!-- Logo -->
       <div class="text-center mb-8">
         <div class="text-5xl mb-3">📄</div>
-        <h1 class="text-white text-2xl font-bold">DocAgent</h1>
+        <h1 class="text-white text-2xl font-bold">z3ndocs</h1>
         <p class="text-slate-400 text-sm mt-1">AI Document Assistant</p>
       </div>
 

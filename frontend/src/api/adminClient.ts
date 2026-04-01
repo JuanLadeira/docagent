@@ -29,8 +29,18 @@ export interface Tenant {
   id: number
   nome: string
   descricao: string | null
+  llm_provider: string | null
+  llm_model: string | null
+  llm_api_key_set: boolean
   created_at: string
   updated_at: string
+}
+
+export type LlmMode = 'local' | 'api'
+
+export interface SystemConfig {
+  llm_mode: LlmMode
+  [key: string]: string | undefined
 }
 
 export interface AdminUser {
@@ -50,7 +60,7 @@ export const adminApi = {
   getTenants: () => adminClient.get<Tenant[]>('/tenants'),
   createTenant: (data: { nome: string; descricao?: string }) =>
     adminClient.post<Tenant>('/tenants', data),
-  updateTenant: (id: number, data: { nome?: string; descricao?: string }) =>
+  updateTenant: (id: number, data: { nome?: string; descricao?: string; llm_provider?: string | null; llm_model?: string | null; llm_api_key?: string | null }) =>
     adminClient.put<Tenant>(`/tenants/${id}`, data),
   deleteTenant: (id: number) => adminClient.delete(`/tenants/${id}`),
 
@@ -68,6 +78,10 @@ export const adminApi = {
   // Admins
   createAdmin: (data: { username: string; email: string; nome: string; password: string }) =>
     adminClient.post<AdminUser>('/admins', data),
+
+  // System Config
+  getSystemConfig: () => adminClient.get<SystemConfig>('/system-config'),
+  updateSystemConfig: (data: Partial<SystemConfig>) => adminClient.put<SystemConfig>('/system-config', data),
 }
 
 export default adminClient

@@ -22,7 +22,7 @@ async function handleSubmit() {
     <div class="w-full max-w-md px-6">
       <div class="text-center mb-8">
         <div class="text-5xl mb-3">🛡️</div>
-        <h1 class="text-white text-2xl font-bold">DocAgent Admin</h1>
+        <h1 class="text-white text-2xl font-bold">z3ndocs Admin</h1>
         <p class="text-slate-400 text-sm mt-1">Painel de administração</p>
       </div>
 
