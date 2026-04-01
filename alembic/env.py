@@ -17,6 +17,7 @@ from docagent.whatsapp.models import WhatsappInstancia  # noqa: F401
 from docagent.telegram.models import TelegramInstancia  # noqa: F401
 from docagent.agente.models import Agente  # noqa: F401
 from docagent.atendimento.models import Atendimento, Contato, MensagemAtendimento  # noqa: F401
+from docagent.system_config.models import SystemConfig  # noqa: F401
 from docagent.settings import Settings
 
 settings = Settings()

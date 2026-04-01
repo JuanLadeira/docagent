@@ -20,6 +20,9 @@ from docagent.whatsapp.models import WhatsappInstancia  # noqa
 from docagent.atendimento.models import Atendimento, MensagemAtendimento, Contato  # noqa
 from docagent.mcp_server.models import McpServer, McpTool  # noqa
 from docagent.agente.models import Agente, Documento  # noqa
+from docagent.admin.models import Admin  # noqa
+from docagent.system_config.models import SystemConfig  # noqa
+from docagent.agente.defaults import AGENTES_PADRAO
 from docagent.auth.security import get_password_hash
 from docagent.settings import Settings
 
@@ -55,28 +58,50 @@ async def main():
                 await session.flush()
                 print(f'[entrypoint] Usuário {username!r} criado (tenant_id={tenant.id}).')
 
-    # Seed agentes padrão se não existir nenhum
+    # Seed admin global (sys-mgmt)
     async with SessionLocal() as session:
         async with session.begin():
-            result = await session.execute(select(Agente))
-            if not result.scalars().first():
-                agentes_padrao = [
-                    Agente(
-                        nome='Analista de Documentos',
-                        descricao='Especializado em analisar PDFs carregados pelo usuário.',
-                        skill_names=['rag_search', 'web_search'],
-                        ativo=True,
-                    ),
-                    Agente(
-                        nome='Pesquisador Web',
-                        descricao='Busca informações atuais na internet sem depender de documentos.',
-                        skill_names=['web_search'],
-                        ativo=True,
-                    ),
-                ]
-                for a in agentes_padrao:
-                    session.add(a)
-                print('[entrypoint] Agentes padrão criados.')
+            result = await session.execute(select(Admin).where(Admin.username == username))
+            existing_admin = result.scalar_one_or_none()
+            if existing_admin:
+                print('[entrypoint] Admin ' + repr(username) + ' já existe, pulando seed de admin.')
+            else:
+                admin = Admin(
+                    username=username,
+                    email=username + '@docagent.com',
+                    password=get_password_hash(password),
+                    nome='Administrador',
+                    ativo=True,
+                )
+                session.add(admin)
+                await session.flush()
+                print('[entrypoint] Admin ' + repr(username) + ' criado.')
+
+    # Seed agentes padrão — upsert por nome para cada tenant
+    # Garante que novos agentes adicionados ao catálogo cheguem a todos os tenants existentes
+    async with SessionLocal() as session:
+        async with session.begin():
+            tenant_result = await session.execute(select(Tenant).order_by(Tenant.id))
+            for tenant in tenant_result.scalars().all():
+                nomes_result = await session.execute(
+                    select(Agente.nome).where(Agente.tenant_id == tenant.id)
+                )
+                nomes_existentes = {row[0] for row in nomes_result.all()}
+                criados = 0
+                for dados in AGENTES_PADRAO:
+                    if dados['nome'] not in nomes_existentes:
+                        session.add(Agente(**dados, tenant_id=tenant.id))
+                        criados += 1
+                if criados:
+                    print('[entrypoint] ' + str(criados) + ' agente(s) padrão adicionado(s) ao tenant_id=' + str(tenant.id))
+
+    # Seed system config — garante que llm_mode existe com padrão 'local'
+    async with SessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(select(SystemConfig).where(SystemConfig.key == 'llm_mode'))
+            if not result.scalar_one_or_none():
+                session.add(SystemConfig(key='llm_mode', value='local'))
+                print('[entrypoint] SystemConfig llm_mode=local criado.')
 
     # Seed servidores MCP — upsert por nome (adiciona novos, não sobrescreve existentes)
     servidores_exemplo = [
