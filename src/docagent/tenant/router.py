@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, status
 from docagent.auth.current_user import CurrentUser
 from docagent.tenant.schemas import TenantCreate, TenantLlmConfigUpdate, TenantPublic, TenantUpdate
 from docagent.tenant.services import TenantServiceDep
+from docagent.usuario.models import UsuarioRole
 
 router = APIRouter(
     prefix="/api/tenants",
@@ -54,7 +55,7 @@ class _LlmConfigResponse(TenantLlmConfigUpdate):
 @router.get("/me/llm-config")
 async def get_my_llm_config(current_user: CurrentUser, service: TenantServiceDep):
     """Retorna a configuração LLM do tenant atual (owner apenas)."""
-    if current_user.role != "OWNER":
+    if current_user.role != UsuarioRole.OWNER:
         raise HTTPException(status_code=403, detail="Apenas owners podem acessar esta configuração")
     tenant = await service.get_by_id(current_user.tenant_id)
     if not tenant:
@@ -74,7 +75,7 @@ async def update_my_llm_config(
     service: TenantServiceDep,
 ):
     """Atualiza a configuração LLM do tenant atual (owner apenas)."""
-    if current_user.role != "OWNER":
+    if current_user.role != UsuarioRole.OWNER:
         raise HTTPException(status_code=403, detail="Apenas owners podem alterar esta configuração")
     tenant = await service.get_by_id(current_user.tenant_id)
     if not tenant:
