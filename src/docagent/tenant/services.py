@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from docagent.database import AsyncDBSession
 from docagent.tenant.models import Tenant
-from docagent.tenant.schemas import TenantCreate, TenantUpdate
+from docagent.tenant.schemas import TenantCreate, TenantLlmConfigUpdate, TenantUpdate
 
 
 class TenantService:
@@ -41,6 +41,16 @@ class TenantService:
 
         await self.session.flush()
         await self.session.refresh(tenant)
+        return tenant
+
+    async def update_llm_config(self, tenant: Tenant, data: TenantLlmConfigUpdate) -> Tenant:
+        if data.llm_provider is not None:
+            tenant.llm_provider = data.llm_provider or None
+        if data.llm_model is not None:
+            tenant.llm_model = data.llm_model or None
+        if data.llm_api_key is not None:
+            tenant.llm_api_key = data.llm_api_key or None
+        await self.session.flush()
         return tenant
 
     async def delete(self, tenant_id: int) -> bool:
