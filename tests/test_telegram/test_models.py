@@ -1,9 +1,7 @@
 """Testes unitários dos modelos Telegram e CanalAtendimento."""
 import pytest
-import pytest_asyncio
-from sqlalchemy import select
 
-from docagent.telegram.models import TelegramInstancia, TelegramBotStatus
+from docagent.telegram.models import TelegramBotStatus
 from docagent.atendimento.models import Atendimento, CanalAtendimento
 
 from tests.test_telegram.conftest import (

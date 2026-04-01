@@ -3,11 +3,9 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import Response
 
-from docagent.telegram.models import TelegramInstancia
 
 from tests.test_telegram.conftest import (
     _criar_tenant_e_owner,
-    _criar_agente,
     _criar_telegram_instancia,
 )
 

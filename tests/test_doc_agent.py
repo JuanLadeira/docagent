@@ -5,10 +5,9 @@ doc_agent.py foi removido na reorganização arquitetural.
 Equivalente moderno: ConfigurableAgent em docagent.agent.configurable.
 """
 import pytest
+from unittest.mock import patch, MagicMock
 
 pytestmark = pytest.mark.skip(reason="doc_agent.py removido — use ConfigurableAgent")
-
-from unittest.mock import patch, MagicMock
 
 
 class TestDocAgentContract:

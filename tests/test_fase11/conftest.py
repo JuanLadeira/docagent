@@ -2,7 +2,6 @@
 Fixtures compartilhadas para testes da Fase 11 (MCP).
 Usa SQLite in-memory async para isolamento total entre testes.
 """
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine

@@ -7,7 +7,7 @@ Fase 3: campo summary no estado, injecao de contexto no agent_node,
 """
 import pytest
 from unittest.mock import MagicMock, patch
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from langgraph.graph.message import add_messages
 from langgraph.graph import END
@@ -145,7 +145,7 @@ class TestAgentNode:
         with patch("docagent.agent.llm_factory.get_llm", return_value=mock_llm_instance):
             from docagent.agent.base import _build_graph as build_graph
             # Acessa o agent_node compilado rodando o grafo ate o primeiro passo
-            graph = build_graph([], "")
+            build_graph([], "")
 
         # Chama o agent_node via invoke para isolar apenas esse no
         mock_llm_instance.invoke.reset_mock()
@@ -155,7 +155,7 @@ class TestAgentNode:
         with patch("docagent.agent.llm_factory.get_llm", return_value=mock_llm_instance):
             import docagent.agent.base as agent_module
             # Rebuild para garantir que o mock esta em uso
-            g = agent_module._build_graph([], "")
+            agent_module._build_graph([], "")
 
         return mock_llm_instance
 
@@ -228,7 +228,6 @@ class TestSummarizeNode:
         Historico curto: summarize_node deve retornar dict vazio
         (sem alteracao no estado).
         """
-        from docagent.agent.memory import SUMMARY_THRESHOLD
 
         # Menos mensagens que o threshold
         few_messages = [
@@ -247,7 +246,7 @@ class TestSummarizeNode:
         Historico longo: summarize_node deve chamar summarize_history
         e retornar summary + messages truncadas.
         """
-        from docagent.agent.memory import SUMMARY_THRESHOLD, RECENT_MESSAGES_TO_KEEP
+        from docagent.agent.memory import SUMMARY_THRESHOLD
 
         # Mais mensagens que o threshold
         many_messages = []

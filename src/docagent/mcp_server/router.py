@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy.orm import selectinload
 
 from docagent.auth.current_user import CurrentOwner, CurrentUser
 from docagent.mcp_server.schemas import (

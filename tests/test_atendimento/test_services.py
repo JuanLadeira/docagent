@@ -4,7 +4,7 @@ import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock
 from fastapi import HTTPException
 
-from docagent.atendimento.models import Atendimento, AtendimentoStatus, MensagemOrigem
+from docagent.atendimento.models import AtendimentoStatus, MensagemOrigem
 from docagent.atendimento.services import AtendimentoService
 from docagent.whatsapp.atendimento_service import WhatsappAtendimentoService
 from tests.test_atendimento.conftest import (
