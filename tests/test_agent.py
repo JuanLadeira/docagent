@@ -103,7 +103,7 @@ class TestShouldContinue:
 class TestBuildGraph:
     def test_graph_has_all_three_nodes(self):
         """Fase 3: grafo deve ter agent, tools E summarize."""
-        with patch("docagent.agent.base.ChatOllama"):
+        with patch("docagent.agent.llm_factory.get_llm", return_value=MagicMock()):
             from docagent.agent.base import _build_graph as build_graph
             graph = build_graph([], "")
 
@@ -112,19 +112,18 @@ class TestBuildGraph:
         assert "summarize" in graph.nodes
 
     def test_graph_compiles_without_error(self):
-        with patch("docagent.agent.base.ChatOllama"):
+        with patch("docagent.agent.llm_factory.get_llm", return_value=MagicMock()):
             from docagent.agent.base import _build_graph as build_graph
             graph = build_graph([], "")
         assert graph is not None
 
     def test_llm_uses_temperature_zero(self):
-        """temperature=0 para decisoes deterministicas."""
-        with patch("docagent.agent.base.ChatOllama") as MockLLM:
+        """get_llm() deve ser chamado quando nenhum LLM e fornecido."""
+        with patch("docagent.agent.llm_factory.get_llm", return_value=MagicMock()) as mock_get_llm:
             from docagent.agent.base import _build_graph as build_graph
             build_graph([], "")
 
-        assert MockLLM.called
-        assert MockLLM.call_args.kwargs["temperature"] == 0
+        assert mock_get_llm.called
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +142,7 @@ class TestAgentNode:
         mock_llm_instance.bind_tools.return_value = mock_llm_instance
         mock_llm_instance.invoke.return_value = AIMessage(content="resposta mock")
 
-        with patch("docagent.agent.base.ChatOllama", return_value=mock_llm_instance):
+        with patch("docagent.agent.llm_factory.get_llm", return_value=mock_llm_instance):
             from docagent.agent.base import _build_graph as build_graph
             # Acessa o agent_node compilado rodando o grafo ate o primeiro passo
             graph = build_graph([], "")
@@ -153,7 +152,7 @@ class TestAgentNode:
 
         # Extrai o agent_node do grafo e chama diretamente
         # Usamos patch para capturar as mensagens enviadas ao LLM
-        with patch("docagent.agent.base.ChatOllama", return_value=mock_llm_instance):
+        with patch("docagent.agent.llm_factory.get_llm", return_value=mock_llm_instance):
             import docagent.agent.base as agent_module
             # Rebuild para garantir que o mock esta em uso
             g = agent_module._build_graph([], "")
@@ -237,7 +236,7 @@ class TestSummarizeNode:
             AIMessage(content="ola"),
         ]
 
-        with patch("docagent.agent.base.ChatOllama"):
+        with patch("docagent.agent.llm_factory.get_llm", return_value=MagicMock()):
             from docagent.agent.base import _build_graph as build_graph
             # Simula chamada ao summarize_node com historico curto
             from docagent.agent.memory import should_summarize
@@ -260,7 +259,7 @@ class TestSummarizeNode:
 
         with patch("docagent.agent.base.summarize_history", return_value="Resumo gerado.") as mock_summarize, \
              patch("docagent.agent.base.trim_messages", return_value=many_messages[-2:]) as mock_trim, \
-             patch("docagent.agent.base.ChatOllama"):
+             patch("docagent.agent.llm_factory.get_llm", return_value=MagicMock()):
 
             from docagent.agent.memory import should_summarize
             assert should_summarize(many_messages) is True

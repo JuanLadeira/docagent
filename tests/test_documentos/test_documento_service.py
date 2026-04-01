@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from docagent.agente.documento_service import DocumentoService
 from docagent.agente.models import Agente, Documento
+from docagent.tenant.models import Tenant
 
 
 @pytest_asyncio.fixture
@@ -17,8 +18,17 @@ async def service(db_session: AsyncSession) -> DocumentoService:
 
 
 @pytest_asyncio.fixture
-async def agente_a(db_session: AsyncSession) -> Agente:
-    a = Agente(nome="Agente A", descricao="", skill_names=["rag_search"], ativo=True)
+async def _tenant(db_session: AsyncSession) -> Tenant:
+    t = Tenant(nome="Tenant Teste")
+    db_session.add(t)
+    await db_session.flush()
+    await db_session.refresh(t)
+    return t
+
+
+@pytest_asyncio.fixture
+async def agente_a(db_session: AsyncSession, _tenant: Tenant) -> Agente:
+    a = Agente(nome="Agente A", descricao="", skill_names=["rag_search"], ativo=True, tenant_id=_tenant.id)
     db_session.add(a)
     await db_session.flush()
     await db_session.refresh(a)
@@ -26,8 +36,8 @@ async def agente_a(db_session: AsyncSession) -> Agente:
 
 
 @pytest_asyncio.fixture
-async def agente_b(db_session: AsyncSession) -> Agente:
-    b = Agente(nome="Agente B", descricao="", skill_names=["rag_search"], ativo=True)
+async def agente_b(db_session: AsyncSession, _tenant: Tenant) -> Agente:
+    b = Agente(nome="Agente B", descricao="", skill_names=["rag_search"], ativo=True, tenant_id=_tenant.id)
     db_session.add(b)
     await db_session.flush()
     await db_session.refresh(b)

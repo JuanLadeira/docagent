@@ -14,6 +14,7 @@ from docagent.auth.security import get_password_hash
 from docagent.agente.models import Agente
 from docagent.tenant.models import Tenant
 from docagent.usuario.models import Usuario, UsuarioRole
+from docagent.system_config.models import SystemConfig  # noqa: F401
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -86,11 +87,15 @@ async def auth_headers(owner_token: str) -> dict:
 @pytest_asyncio.fixture
 async def agente_fixture(db_session: AsyncSession) -> Agente:
     """Cria um agente com rag_search para os testes."""
+    tenant = Tenant(nome="Tenant Teste")
+    db_session.add(tenant)
+    await db_session.flush()
     agente = Agente(
         nome="RAG Agent",
         descricao="Agente de teste",
         skill_names=["rag_search"],
         ativo=True,
+        tenant_id=tenant.id,
     )
     db_session.add(agente)
     await db_session.flush()

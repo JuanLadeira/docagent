@@ -37,7 +37,7 @@ async def test_telegram_instancia_cria_atendimentos_false(db_session):
 @pytest.mark.asyncio
 async def test_telegram_instancia_com_agente(db_session):
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     inst = await _criar_telegram_instancia(db_session, tenant.id, agente_id=agente.id)
     assert inst.agente_id == agente.id
 

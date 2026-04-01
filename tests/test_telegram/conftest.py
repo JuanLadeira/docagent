@@ -21,6 +21,7 @@ from docagent.auth.security import create_access_token, get_password_hash
 
 # Importar modelos de telegram e atendimento para registrar em Base.metadata
 from docagent.telegram.models import TelegramInstancia, TelegramBotStatus  # noqa: F401
+from docagent.system_config.models import SystemConfig  # noqa: F401
 from docagent.atendimento.models import (  # noqa: F401
     Atendimento, AtendimentoStatus, CanalAtendimento, MensagemAtendimento, MensagemOrigem,
 )
@@ -119,13 +120,14 @@ async def _criar_tenant_e_owner(db_session, username="owner"):
     return tenant, user, token
 
 
-async def _criar_agente(db_session):
+async def _criar_agente(db_session, tenant_id: int):
     agente = Agente(
         nome="Agente Telegram Teste",
         descricao="Para testes",
         system_prompt="Voce e um assistente de teste.",
         skill_names=[],
         ativo=True,
+        tenant_id=tenant_id,
     )
     db_session.add(agente)
     await db_session.flush()
