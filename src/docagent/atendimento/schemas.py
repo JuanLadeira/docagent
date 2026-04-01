@@ -24,6 +24,8 @@ class AtendimentoPublic(BaseModel):
     tenant_id: int
     status: AtendimentoStatus
     prioridade: Prioridade
+    assumido_por_id: int | None
+    assumido_por_nome: str | None
     contato_id: int | None
     created_at: datetime
     updated_at: datetime
