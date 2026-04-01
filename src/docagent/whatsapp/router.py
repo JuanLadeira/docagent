@@ -37,6 +37,7 @@ from docagent.whatsapp.models import ConexaoStatus, WhatsappInstancia
 from docagent.whatsapp.schemas import (
     InstanciaCreate,
     InstanciaPublic,
+    InstanciaUpdate,
     MensagemMidiaRequest,
     MensagemTextoRequest,
     WebhookEvento,
@@ -59,7 +60,7 @@ def _tem_skills_mcp(agente_obj: Agente) -> bool:
     return any(s.startswith("mcp:") for s in agente_obj.skill_names)
 
 
-def _build_agent_obj(agente_obj: Agente, extra_tools: list | None = None) -> BaseAgent:
+def _build_agent_obj(agente_obj: Agente, extra_tools: list | None = None, llm=None) -> BaseAgent:
     config = AgentConfig(
         id=str(agente_obj.id),
         name=agente_obj.nome,
@@ -70,19 +71,22 @@ def _build_agent_obj(agente_obj: Agente, extra_tools: list | None = None) -> Bas
         config,
         system_prompt_override=agente_obj.system_prompt or None,
         extra_tools=extra_tools,
+        llm=llm,
     ).build()
 
 
-def _get_or_build_agent(agente_obj: Agente) -> BaseAgent:
+def _get_or_build_agent(agente_obj: Agente, llm=None, llm_provider: str = "", llm_model: str = "") -> BaseAgent:
     """Retorna o agente cacheado ou constrói um novo se a config mudou.
     Agentes com skills MCP nunca são cacheados — use _build_agent_obj diretamente."""
     cache_key = (
         agente_obj.id,
         tuple(agente_obj.skill_names),
         agente_obj.system_prompt or "",
+        llm_provider,
+        llm_model,
     )
     if cache_key not in _agent_cache:
-        _agent_cache[cache_key] = _build_agent_obj(agente_obj)
+        _agent_cache[cache_key] = _build_agent_obj(agente_obj, llm=llm)
     return _agent_cache[cache_key]
 
 
@@ -130,6 +134,17 @@ async def sincronizar_status(
 ):
     instancia = await _get_instancia_or_404(instancia_id, current_user, service)
     return await service.sincronizar_status(instancia)
+
+
+@router.patch("/instancias/{instancia_id}", response_model=InstanciaPublic)
+async def atualizar_instancia(
+    instancia_id: int,
+    data: InstanciaUpdate,
+    current_user: CurrentUser,
+    service: WhatsappServiceDep,
+):
+    instancia = await _get_instancia_or_404(instancia_id, current_user, service)
+    return await service.atualizar_instancia(instancia, data)
 
 
 @router.delete("/instancias/{instancia_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -361,8 +376,6 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         if not conteudo:
             return
 
-        session_id = f"whatsapp:{numero}"
-
         # Buscar instância, agente e gerenciar atendimento
         async with AsyncSessionLocal() as db:
             result = await db.execute(
@@ -371,6 +384,8 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
             instancia = result.scalar_one_or_none()
             if not instancia:
                 return
+
+            session_id = f"whatsapp:{instancia.tenant_id}:{numero}"
 
             agente = None
             if instancia.agente_id:
@@ -435,6 +450,8 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
                 "tenant_id": atendimento.tenant_id,
                 "status": atendimento.status.value,
                 "prioridade": atendimento.prioridade.value,
+                "assumido_por_id": atendimento.assumido_por_id,
+                "assumido_por_nome": atendimento.assumido_por_nome,
                 "contato_id": atendimento.contato_id,
                 "created_at": atendimento.created_at.isoformat() if atendimento.created_at else None,
                 "updated_at": atendimento.updated_at.isoformat() if atendimento.updated_at else None,
@@ -465,6 +482,20 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         state = sessions.get(session_id)
         loop = asyncio.get_event_loop()
 
+        # Carregar LLM do tenant (respeita llm_mode global do sistema)
+        from docagent.agent.llm_factory import get_tenant_llm
+        async with AsyncSessionLocal() as llm_db:
+            tenant_llm = await get_tenant_llm(atendimento_tenant_id, llm_db)
+        llm_provider = getattr(tenant_llm, "model_name", "") or getattr(tenant_llm, "model", "") or ""
+        llm_model = ""
+
+        # Handoff flag: detecta se a LLM acionou a tool de transferência humana.
+        handoff_flag: dict = {'requested': False}
+        handoff_extra: list = []
+        if 'human_handoff' in agente_obj.skill_names:
+            from docagent.agent.skills.human_handoff import HumanHandoffSkill
+            handoff_extra = [HumanHandoffSkill(flag=handoff_flag).as_tool()]
+
         if _tem_skills_mcp(agente_obj):
             from docagent.mcp_server.models import McpServer
             from docagent.mcp_server.services import load_mcp_tools_for_skills
@@ -477,21 +508,48 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
                     servers = list(result.scalars().all())
                 mcp_skills = [n for n in agente_obj.skill_names if n.startswith("mcp:")]
                 mcp_tools = await load_mcp_tools_for_skills(mcp_skills, servers, stack)
-                agent = _build_agent_obj(agente_obj, extra_tools=mcp_tools)
+                agent = _build_agent_obj(agente_obj, extra_tools=mcp_tools + handoff_extra, llm=tenant_llm)
                 final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
         else:
-            agent = _get_or_build_agent(agente_obj)
+            extra = handoff_extra or None
+            if extra:
+                agent = _build_agent_obj(agente_obj, extra_tools=extra, llm=tenant_llm)
+            else:
+                agent = _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider, llm_model=llm_model)
             final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
         if agent.last_state:
             sessions.update(session_id, agent.last_state)
+
+        # Se a LLM acionou a tool de handoff, sinalizar no atendimento.
+        if handoff_flag['requested']:
+            async with AsyncSessionLocal() as db:
+                from docagent.atendimento.services import AtendimentoService
+                _at = await db.get(Atendimento, atendimento_id)
+                if _at:
+                    await AtendimentoService(db).sinalizar_humano(_at)
+                    await db.commit()
 
         answer = ""
         if final_state and final_state.get("messages"):
             last_msg = final_state["messages"][-1]
             if isinstance(last_msg, AIMessage):
-                answer = last_msg.content or ""
+                from docagent.utils import strip_emojis
+                answer = strip_emojis(last_msg.content or "")
         if not answer:
             return
+
+        # Marcador de pedido confirmado: o agente inclui [PEDIDO_CONFIRMADO] na resposta
+        # quando o cliente confirmar o pedido. O webhook detecta, remove o marcador e
+        # sinaliza o atendimento — mais confiável que tool calling em modelos pequenos.
+        if "[PEDIDO_CONFIRMADO]" in answer:
+            answer = answer.replace("[PEDIDO_CONFIRMADO]", "").strip()
+            if not handoff_flag['requested']:
+                async with AsyncSessionLocal() as db:
+                    from docagent.atendimento.services import AtendimentoService
+                    _at = await db.get(Atendimento, atendimento_id)
+                    if _at:
+                        await AtendimentoService(db).sinalizar_humano(_at)
+                        await db.commit()
 
         # Salvar resposta do agente
         async with AsyncSessionLocal() as db:
@@ -510,7 +568,11 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
             "conteudo": answer,
         })
 
-        # Enviar resposta via Evolution API
+        # Enviar resposta via Evolution API simulando digitação humana.
+        # options.delay faz a Evolution API exibir "digitando..." por N ms antes de enviar.
+        # Calculamos o delay com base no tamanho da resposta (~30ms por caractere),
+        # limitado entre 1.5 e 5 segundos para parecer natural.
+        typing_delay_ms = max(1500, min(5000, len(answer) * 30))
         settings = Settings()
         async with httpx.AsyncClient(
             base_url=settings.EVOLUTION_API_URL,
@@ -519,7 +581,14 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         ) as client:
             await client.post(
                 f"/message/sendText/{evento.instance}",
-                json={"number": numero, "text": answer},
+                json={
+                    "number": numero,
+                    "text": answer,
+                    "options": {
+                        "delay": typing_delay_ms,
+                        "presence": "composing",
+                    },
+                },
             )
     except Exception as e:
         log.exception("Erro em _processar_mensagem_recebida instance=%s: %s", evento.instance, e)

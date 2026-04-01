@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from docagent.database import AsyncDBSession
 from docagent.telegram.client import get_telegram_client
 from docagent.telegram.models import TelegramBotStatus, TelegramInstancia
-from docagent.telegram.schemas import TelegramInstanciaCreate
+from docagent.telegram.schemas import TelegramInstanciaCreate, TelegramInstanciaUpdate
 
 
 class TelegramService:
@@ -63,6 +63,12 @@ class TelegramService:
             )
         )
         return result.scalar_one_or_none()
+
+    async def atualizar_instancia(self, instancia: TelegramInstancia, data: TelegramInstanciaUpdate) -> TelegramInstancia:
+        instancia.agente_id = data.agente_id
+        await self.session.flush()
+        await self.session.refresh(instancia)
+        return instancia
 
     async def deletar_instancia(self, instancia: TelegramInstancia) -> None:
         # Best-effort: cancela webhook antes de remover

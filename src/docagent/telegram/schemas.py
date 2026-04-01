@@ -11,6 +11,10 @@ class TelegramInstanciaCreate(BaseModel):
     cria_atendimentos: bool = True
 
 
+class TelegramInstanciaUpdate(BaseModel):
+    agente_id: int | None = None
+
+
 class TelegramInstanciaPublic(BaseModel):
     model_config = {"from_attributes": True}
 
