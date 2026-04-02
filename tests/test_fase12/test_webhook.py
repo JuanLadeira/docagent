@@ -133,7 +133,7 @@ async def test_webhook_mensagem_sem_agente_ignorada(client: AsyncClient, db_sess
 async def test_webhook_mensagem_from_me_ignorada(client: AsyncClient, db_session):
     """Mensagens enviadas pelo proprio bot nao devem ser processadas."""
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant_id=tenant.id)
     await _criar_instancia(db_session, tenant.id, agente_id=agente.id)
 
     evento_from_me = {
@@ -156,7 +156,7 @@ async def test_webhook_mensagem_from_me_ignorada(client: AsyncClient, db_session
 async def test_webhook_mensagem_com_agente_executa_e_responde(client: AsyncClient, db_session):
     """Com agente vinculado, deve rodar o agente e enviar resposta via Evolution."""
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant_id=tenant.id)
     await _criar_instancia(db_session, tenant.id, agente_id=agente.id)
 
     from langchain_core.messages import AIMessage
