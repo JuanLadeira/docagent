@@ -114,7 +114,7 @@ class TestBaseAgentBuild:
             mock_build.return_value = MagicMock()
             agent.build()
 
-        mock_build.assert_called_once_with([], "agente de teste")
+        mock_build.assert_called_once_with([], "agente de teste", llm=None)
 
     def test_graph_is_none_before_build(self):
         """Antes de build(), o grafo interno deve ser None."""

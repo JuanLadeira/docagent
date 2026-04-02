@@ -10,7 +10,6 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from langchain_core.messages import HumanMessage
-from langchain_ollama import ChatOllama
 
 from docagent.chat.router import router as chat_router
 from docagent.rag.router import router as documents_router
@@ -34,18 +33,16 @@ if os.getenv("LANGSMITH_API_KEY"):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Aquece o modelo LLM no startup para eliminar cold start na primeira mensagem."""
-    try:
-        llm = ChatOllama(
-            model=os.getenv("LLM_MODEL", "qwen2.5:7b"),
-            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            temperature=0,
-        )
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, llm.invoke, [HumanMessage(content="olá")])
-        print("[startup] Modelo aquecido.")
-    except Exception as e:
-        print(f"[startup] Warmup falhou (Ollama offline?): {e}")
+    """Aquece o modelo Ollama no startup (somente quando llm_mode=local)."""
+    if os.getenv("LLM_PROVIDER", "ollama") == "ollama":
+        try:
+            from docagent.agent.llm_factory import get_llm
+            llm = get_llm()
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, llm.invoke, [HumanMessage(content="olá")])
+            print("[startup] Modelo aquecido.")
+        except Exception as e:
+            print(f"[startup] Warmup falhou (Ollama offline?): {e}")
     yield
 
 

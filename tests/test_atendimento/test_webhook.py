@@ -57,7 +57,7 @@ def _mock_httpx():
 async def test_mensagem_grupo_ignorada(client, db_session):
     """Mensagens de grupos (@g.us) não criam atendimento."""
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     instancia = await _criar_instancia(db_session, tenant.id, agente.id)
 
     payload = _build_payload(instancia.instance_name, "112233445566@g.us", "Msg de grupo")
@@ -73,7 +73,7 @@ async def test_mensagem_grupo_ignorada(client, db_session):
 async def test_primeiro_contato_cria_atendimento(client, db_session):
     """Primeira mensagem de um número cria atendimento ATIVO."""
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     instancia = await _criar_instancia(db_session, tenant.id, agente.id)
 
     mock_agent_cls, _ = _mock_agent_com_resposta()
@@ -99,7 +99,7 @@ async def test_primeiro_contato_cria_atendimento(client, db_session):
 async def test_segundo_contato_retoma_atendimento(client, db_session):
     """Segunda mensagem do mesmo número retoma atendimento existente."""
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     instancia = await _criar_instancia(db_session, tenant.id, agente.id)
     existing = await _criar_atendimento(db_session, instancia.id, tenant.id, "5511999999999")
 
@@ -125,7 +125,7 @@ async def test_segundo_contato_retoma_atendimento(client, db_session):
 async def test_humano_nao_aciona_agente(client, db_session):
     """Quando atendimento é HUMANO, o agente NÃO deve ser acionado."""
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     instancia = await _criar_instancia(db_session, tenant.id, agente.id)
     await _criar_atendimento(db_session, instancia.id, tenant.id, "5511999999999", "HUMANO")
 
@@ -141,7 +141,7 @@ async def test_humano_nao_aciona_agente(client, db_session):
 async def test_ativo_salva_mensagem_agente(client, db_session):
     """Quando ATIVO, o agente responde e salva MensagemAtendimento(AGENTE)."""
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     instancia = await _criar_instancia(db_session, tenant.id, agente.id)
     await _criar_atendimento(db_session, instancia.id, tenant.id, "5511999999999", "ATIVO")
 

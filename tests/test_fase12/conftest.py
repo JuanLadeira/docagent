@@ -115,7 +115,7 @@ async def _criar_tenant_e_owner(db_session, username="owner"):
     return tenant, user, token
 
 
-async def _criar_agente(db_session):
+async def _criar_agente(db_session, tenant_id: int | None = None):
     """Cria um Agente ativo no banco e commita."""
     agente = Agente(
         nome="Agente Teste",
@@ -123,6 +123,7 @@ async def _criar_agente(db_session):
         system_prompt="Voce e um assistente de teste.",
         skill_names=[],
         ativo=True,
+        tenant_id=tenant_id,
     )
     db_session.add(agente)
     await db_session.flush()

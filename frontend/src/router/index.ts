@@ -54,6 +54,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/servidores-mcp',
+      name: 'servidores-mcp',
+      component: () => import('@/views/McpServidoresView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/atendimentos',
       name: 'atendimentos-whatsapp',
       component: () => import('@/views/atendimento/AtendimentoView.vue'),
@@ -106,6 +112,11 @@ const router = createRouter({
           path: 'assinaturas',
           name: 'admin-assinaturas',
           component: () => import('@/views/admin/AdminAssinaturasView.vue'),
+        },
+        {
+          path: 'configuracoes',
+          name: 'admin-configuracoes',
+          component: () => import('@/views/admin/AdminConfigView.vue'),
         },
       ],
     },

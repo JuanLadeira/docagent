@@ -77,6 +77,10 @@ class Atendimento(Base):
         default=Prioridade.NORMAL,
         nullable=False,
     )
+    assumido_por_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuario.id", ondelete="SET NULL"), nullable=True
+    )
+    assumido_por_nome: Mapped[str | None] = mapped_column(String(100), nullable=True)
     contato_id: Mapped[int | None] = mapped_column(
         ForeignKey("contato.id", ondelete="SET NULL"), nullable=True
     )

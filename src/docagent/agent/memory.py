@@ -73,6 +73,7 @@ def summarize_history(
         model=os.getenv("LLM_MODEL", "qwen2.5:7b"),
         base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         temperature=0,
+        keep_alive=-1,
     )
 
     resumo_anterior = (

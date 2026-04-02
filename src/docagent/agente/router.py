@@ -22,9 +22,9 @@ legacy_router = APIRouter(tags=["Agentes"])
 
 
 @legacy_router.get("/agents", response_model=list[AgentInfo])
-async def list_agents(service: AgenteServiceDep) -> list[AgentInfo]:
-    """Lista todos os agentes ativos com suas skills."""
-    agentes = await service.get_all(apenas_ativos=True)
+async def list_agents(current_user: CurrentUser, service: AgenteServiceDep) -> list[AgentInfo]:
+    """Lista agentes ativos do tenant com suas skills."""
+    agentes = await service.get_all(tenant_id=current_user.tenant_id, apenas_ativos=True)
     result = []
     for agente in agentes:
         skills = [
@@ -47,36 +47,36 @@ async def list_agents(service: AgenteServiceDep) -> list[AgentInfo]:
 
 
 @router.get("/", response_model=list[AgentePublic])
-async def list_agentes(_: CurrentUser, service: AgenteServiceDep):
-    return await service.get_all()
+async def list_agentes(current_user: CurrentUser, service: AgenteServiceDep):
+    return await service.get_all(tenant_id=current_user.tenant_id)
 
 
 @router.get("/{agente_id}", response_model=AgentePublic)
-async def get_agente(agente_id: int, _: CurrentUser, service: AgenteServiceDep):
-    agente = await service.get_by_id(agente_id)
+async def get_agente(agente_id: int, current_user: CurrentUser, service: AgenteServiceDep):
+    agente = await service.get_by_id(agente_id, tenant_id=current_user.tenant_id)
     if not agente:
         raise HTTPException(status_code=404, detail="Agente nao encontrado")
     return agente
 
 
 @router.post("/", response_model=AgentePublic, status_code=status.HTTP_201_CREATED)
-async def create_agente(data: AgenteCreate, _: CurrentOwner, service: AgenteServiceDep):
-    return await service.create(data)
+async def create_agente(data: AgenteCreate, current_user: CurrentOwner, service: AgenteServiceDep):
+    return await service.create(data, tenant_id=current_user.tenant_id)
 
 
 @router.put("/{agente_id}", response_model=AgentePublic)
 async def update_agente(
-    agente_id: int, data: AgenteUpdate, _: CurrentOwner, service: AgenteServiceDep
+    agente_id: int, data: AgenteUpdate, current_user: CurrentOwner, service: AgenteServiceDep
 ):
-    agente = await service.update(agente_id, data)
+    agente = await service.update(agente_id, data, tenant_id=current_user.tenant_id)
     if not agente:
         raise HTTPException(status_code=404, detail="Agente nao encontrado")
     return agente
 
 
 @router.delete("/{agente_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_agente(agente_id: int, _: CurrentOwner, service: AgenteServiceDep):
-    deleted = await service.delete(agente_id)
+async def delete_agente(agente_id: int, current_user: CurrentOwner, service: AgenteServiceDep):
+    deleted = await service.delete(agente_id, tenant_id=current_user.tenant_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Agente nao encontrado")
 
@@ -87,11 +87,11 @@ async def delete_agente(agente_id: int, _: CurrentOwner, service: AgenteServiceD
 @router.get("/{agente_id}/documentos", response_model=list[DocumentoPublic])
 async def listar_documentos(
     agente_id: int,
-    _: CurrentUser,
+    current_user: CurrentUser,
     service: AgenteServiceDep,
     doc_service: DocumentoServiceDep,
 ):
-    if not await service.get_by_id(agente_id):
+    if not await service.get_by_id(agente_id, tenant_id=current_user.tenant_id):
         raise HTTPException(status_code=404, detail="Agente nao encontrado")
     return await doc_service.get_by_agente(agente_id)
 
@@ -103,12 +103,12 @@ async def listar_documentos(
 )
 async def upload_documento(
     agente_id: int,
+    current_user: CurrentUser,
     file: UploadFile = File(...),
-    _: CurrentUser = None,
     service: AgenteServiceDep = None,
     doc_service: DocumentoServiceDep = None,
 ):
-    if not await service.get_by_id(agente_id):
+    if not await service.get_by_id(agente_id, tenant_id=current_user.tenant_id):
         raise HTTPException(status_code=404, detail="Agente nao encontrado")
     content = await file.read()
     try:
@@ -133,8 +133,11 @@ async def upload_documento(
 async def remover_documento(
     agente_id: int,
     doc_id: int,
-    _: CurrentUser,
+    current_user: CurrentUser,
     doc_service: DocumentoServiceDep,
+    service: AgenteServiceDep,
 ):
+    if not await service.get_by_id(agente_id, tenant_id=current_user.tenant_id):
+        raise HTTPException(status_code=404, detail="Agente nao encontrado")
     if not await doc_service.delete(doc_id):
         raise HTTPException(status_code=404, detail="Documento nao encontrado")

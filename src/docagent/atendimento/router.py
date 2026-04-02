@@ -248,7 +248,7 @@ async def assumir_atendimento(
     service: AtendimentoServiceDep,
 ):
     atendimento = await _get_atendimento_or_404(atendimento_id, current_user, service)
-    atendimento = await service.assumir(atendimento)
+    atendimento = await service.assumir(atendimento, current_user.id, current_user.nome)
     at_public = AtendimentoPublic.model_validate(atendimento)
     await atendimento_lista_sse_manager.broadcast(current_user.tenant_id, {
         "type": "ATENDIMENTO_ATUALIZADO",

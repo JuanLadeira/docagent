@@ -35,17 +35,22 @@ def _mock_mcp_service():
 
 @pytest.fixture
 def client():
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import patch, MagicMock, AsyncMock
     from docagent.api import app
     from docagent.agente.services import get_agente_service
     from docagent.mcp_server.services import get_mcp_service
+    from docagent.auth.current_user import get_current_user
 
+    mock_user = MagicMock(id=1, tenant_id=1, username="owner")
     mock_service = make_mock_service()
     app.dependency_overrides[get_agente_service] = lambda: _mock_agente_service()
     app.dependency_overrides[get_mcp_service] = lambda: _mock_mcp_service()
+    app.dependency_overrides[get_current_user] = lambda: mock_user
 
+    mock_llm = MagicMock()
     with patch("docagent.chat.router.ChatService", return_value=mock_service), \
-         patch("docagent.chat.router.ConfigurableAgent") as MockCA:
+         patch("docagent.chat.router.ConfigurableAgent") as MockCA, \
+         patch("docagent.chat.router.get_tenant_llm", new=AsyncMock(return_value=mock_llm)):
         MockCA.return_value.build.return_value = MagicMock()
         yield TestClient(app), mock_service
 

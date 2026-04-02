@@ -24,7 +24,6 @@ watch(() => chat.selectedAgentId, (id) => {
   if (id) loadDocumentos(id)
 })
 
-// Scroll ao fim quando chegam novas mensagens ou step muda
 watch(
   () => [chat.messages.length, chat.currentStep],
   () => nextTick(scrollToBottom),
@@ -108,9 +107,9 @@ function triggerUpload() {
 </script>
 
 <template>
-  <div class="flex h-full" style="background: #f8fafc">
+  <div class="flex h-full bg-slate-50 dark:bg-slate-900">
     <!-- ─── Sidebar ─────────────────────────────────────────────────────── -->
-    <aside class="w-72 flex-shrink-0 flex flex-col border-r border-slate-200" style="background: #0f172a">
+    <aside class="w-72 flex-shrink-0 flex flex-col border-r border-slate-700" style="background: #0f172a">
       <!-- Header -->
       <div class="p-5 border-b border-slate-700">
         <h2 class="text-white font-semibold text-sm">Painel do Agente</h2>
@@ -169,17 +168,14 @@ function triggerUpload() {
             @change="handleFileChange"
           />
 
-          <!-- Sem agente selecionado -->
           <div v-if="!chat.selectedAgentId" class="text-slate-500 text-xs py-1">
             Selecione um agente para ver seus documentos.
           </div>
 
-          <!-- Carregando -->
           <div v-else-if="loadingDocs" class="text-slate-500 text-xs py-1">
             Carregando...
           </div>
 
-          <!-- Lista de documentos -->
           <div v-else class="space-y-1">
             <div
               v-for="doc in documentos"
@@ -201,7 +197,6 @@ function triggerUpload() {
               </button>
             </div>
 
-            <!-- Estado vazio -->
             <div v-if="documentos.length === 0" class="text-slate-500 text-xs py-1">
               Nenhum documento indexado.
               <button @click="triggerUpload" class="text-indigo-400 hover:text-indigo-300 underline ml-1">
@@ -210,13 +205,11 @@ function triggerUpload() {
             </div>
           </div>
 
-          <!-- Upload em progresso -->
           <div v-if="isUploading" class="mt-2 flex items-center gap-2 text-xs text-slate-400">
             <span class="inline-block w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></span>
             Indexando...
           </div>
 
-          <!-- Erro -->
           <div v-if="docError" class="mt-2 text-xs text-red-400 bg-red-900/30 px-2 py-1 rounded">
             {{ docError }}
           </div>
@@ -237,7 +230,7 @@ function triggerUpload() {
     </aside>
 
     <!-- ─── Main chat area ─────────────────────────────────────────────── -->
-    <div class="flex-1 flex flex-col min-w-0">
+    <div class="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-900">
       <!-- Messages -->
       <div ref="messagesEl" class="flex-1 overflow-y-auto p-6 space-y-4">
         <!-- Empty state -->
@@ -246,8 +239,8 @@ function triggerUpload() {
           class="flex flex-col items-center justify-center h-full text-center"
         >
           <div class="text-6xl mb-4">📄</div>
-          <h3 class="text-slate-700 font-semibold text-lg">Pronto para ajudar</h3>
-          <p class="text-slate-400 text-sm mt-2 max-w-sm">
+          <h3 class="text-slate-700 dark:text-slate-200 font-semibold text-lg">Pronto para ajudar</h3>
+          <p class="text-slate-400 dark:text-slate-500 text-sm mt-2 max-w-sm">
             Faça uma pergunta ou carregue um PDF para começar a análise com o agente selecionado.
           </p>
         </div>
@@ -268,12 +261,12 @@ function triggerUpload() {
           <div v-else class="flex justify-start">
             <div class="flex gap-3 max-w-[80%]">
               <div
-                class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-sm flex-shrink-0 mt-0.5"
+                class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-sm flex-shrink-0 mt-0.5"
               >
                 🤖
               </div>
               <div
-                class="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-slate-800 shadow-sm"
+                class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-slate-800 dark:text-slate-100 shadow-sm"
                 style="white-space: pre-wrap"
               >
                 {{ msg.content }}
@@ -286,19 +279,19 @@ function triggerUpload() {
         <div v-if="chat.isLoading" class="flex justify-start">
           <div class="flex gap-3 max-w-[80%]">
             <div
-              class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-sm flex-shrink-0 mt-0.5"
+              class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-sm flex-shrink-0 mt-0.5"
             >
               🤖
             </div>
-            <div class="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm shadow-sm">
-              <div v-if="chat.currentStep" class="text-slate-500 italic text-xs">
+            <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl rounded-tl-sm px-4 py-3 text-sm shadow-sm">
+              <div v-if="chat.currentStep" class="text-slate-500 dark:text-slate-400 italic text-xs">
                 {{ chat.currentStep }}
               </div>
               <div v-else class="flex gap-1 items-center">
                 <span
                   v-for="n in 3"
                   :key="n"
-                  class="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
+                  class="w-2 h-2 bg-slate-400 dark:bg-slate-500 rounded-full animate-bounce"
                   :style="{ animationDelay: `${(n - 1) * 0.15}s` }"
                 />
               </div>
@@ -308,7 +301,7 @@ function triggerUpload() {
       </div>
 
       <!-- Input bar -->
-      <div class="border-t border-slate-200 bg-white px-6 py-4">
+      <div class="border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-6 py-4">
         <div class="flex gap-3 items-end">
           <textarea
             v-model="input"
@@ -316,7 +309,7 @@ function triggerUpload() {
             placeholder="Digite sua pergunta... (Enter para enviar, Shift+Enter para nova linha)"
             rows="1"
             :disabled="chat.isLoading"
-            class="flex-1 resize-none bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-50 transition-all"
+            class="flex-1 resize-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-50 transition-all"
             style="max-height: 120px; overflow-y: auto"
           />
           <button
@@ -327,7 +320,7 @@ function triggerUpload() {
             Enviar
           </button>
         </div>
-        <p class="text-slate-400 text-xs mt-2">
+        <p class="text-slate-400 dark:text-slate-500 text-xs mt-2">
           Agente: <strong>{{ agentsStore.agents.find((a) => String(a.id) === chat.selectedAgentId)?.nome ?? chat.selectedAgentId }}</strong>
         </p>
       </div>

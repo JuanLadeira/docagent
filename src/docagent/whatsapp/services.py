@@ -11,6 +11,7 @@ from docagent.whatsapp.models import ConexaoStatus, WhatsappInstancia
 from docagent.whatsapp.schemas import (
     InstanciaCreate,
     InstanciaResumoStatus,
+    InstanciaUpdate,
     MensagemMidiaRequest,
     MensagemTextoRequest,
 )
@@ -67,6 +68,12 @@ class WhatsappService:
             )
         )
         return result.scalar_one_or_none()
+
+    async def atualizar_instancia(self, instancia: WhatsappInstancia, data: InstanciaUpdate) -> WhatsappInstancia:
+        instancia.agente_id = data.agente_id
+        await self.session.flush()
+        await self.session.refresh(instancia)
+        return instancia
 
     async def obter_qrcode(self, instancia: WhatsappInstancia) -> dict:
         r = await self.client.get(f"/instance/connect/{instancia.instance_name}")

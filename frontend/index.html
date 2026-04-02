@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DocAgent</title>
+    <title>z3ndocs</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -12,6 +12,14 @@
       rel="stylesheet"
     />
   </head>
+  <!-- Anti-FOUC: aplica dark class antes do Vue montar -->
+  <script>
+    (function () {
+      const t = localStorage.getItem('theme') || 'system'
+      const dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      if (dark) document.documentElement.classList.add('dark')
+    })()
+  </script>
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>

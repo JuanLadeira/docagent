@@ -5,6 +5,10 @@ from docagent.admin.current_admin import CurrentAdmin
 from docagent.admin.schemas import AdminCreate, AdminPublic, Token
 from docagent.admin.services import AdminServiceDep
 from docagent.auth.security import create_access_token, verify_password
+from docagent.agente.defaults import AGENTES_PADRAO
+from docagent.agente.schemas import AgenteCreate
+from docagent.agente.services import AgenteServiceDep
+from docagent.system_config.services import SystemConfigServiceDep, LLM_MODE_KEY
 from docagent.tenant.schemas import TenantCreate, TenantPublic, TenantUpdate
 from docagent.tenant.services import TenantServiceDep
 from docagent.usuario.schemas import UsuarioCreate, UsuarioCreateAdmin, UsuarioPublic, UsuarioUpdate
@@ -48,8 +52,16 @@ async def list_tenants(_: CurrentAdmin, service: TenantServiceDep):
 
 
 @router.post("/tenants", response_model=TenantPublic, status_code=status.HTTP_201_CREATED)
-async def create_tenant(_: CurrentAdmin, data: TenantCreate, service: TenantServiceDep):
-    return await service.create(data)
+async def create_tenant(
+    _: CurrentAdmin,
+    data: TenantCreate,
+    service: TenantServiceDep,
+    agente_service: AgenteServiceDep,
+):
+    tenant = await service.create(data)
+    for dados in AGENTES_PADRAO:
+        await agente_service.create(AgenteCreate(**dados), tenant_id=tenant.id)
+    return tenant
 
 
 @router.put("/tenants/{tenant_id}", response_model=TenantPublic)
@@ -111,6 +123,26 @@ async def delete_usuario(usuario_id: int, _: CurrentAdmin, service: UsuarioServi
     deleted = await service.delete(usuario_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+
+# ─── System Config ────────────────────────────────────────────────────────────
+
+@router.get("/system-config")
+async def get_system_config(_: CurrentAdmin, svc: SystemConfigServiceDep):
+    """Retorna as configurações globais do sistema."""
+    return await svc.get_all()
+
+
+@router.put("/system-config")
+async def update_system_config(
+    data: dict,
+    _: CurrentAdmin,
+    svc: SystemConfigServiceDep,
+):
+    """Atualiza configurações globais do sistema (chave-valor)."""
+    for key, value in data.items():
+        await svc.set(key, str(value) if value is not None else None)
+    return await svc.get_all()
 
 
 # ─── Admin management (bootstrap) ────────────────────────────────────────────

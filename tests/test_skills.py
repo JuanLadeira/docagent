@@ -57,7 +57,7 @@ class TestRagSearchSkill:
 
 class TestWebSearchSkill:
     def _make_skill(self):
-        with patch("docagent.agent.skills.web_search.DuckDuckGoSearchRun"):
+        with patch("docagent.agent.skills.web_search.DuckDuckGoSearchResults"):
             from docagent.agent.skills.web_search import WebSearchSkill
             return WebSearchSkill()
 
@@ -79,7 +79,7 @@ class TestWebSearchSkill:
 
     def test_as_tool_returns_base_tool(self):
         """as_tool() deve retornar uma instancia de BaseTool."""
-        with patch("docagent.agent.skills.web_search.DuckDuckGoSearchRun") as mock_cls:
+        with patch("docagent.agent.skills.web_search.DuckDuckGoSearchResults") as mock_cls:
             mock_tool = MagicMock(spec=BaseTool)
             mock_tool.name = "web_search"
             mock_cls.return_value = mock_tool
@@ -120,7 +120,7 @@ class TestSkillProtocol:
 
     def test_web_search_satisfies_protocol(self):
         """WebSearchSkill deve ter todos os atributos do protocolo Skill."""
-        with patch("docagent.agent.skills.web_search.DuckDuckGoSearchRun"):
+        with patch("docagent.agent.skills.web_search.DuckDuckGoSearchResults"):
             from docagent.agent.skills.web_search import WebSearchSkill
             skill = WebSearchSkill()
 

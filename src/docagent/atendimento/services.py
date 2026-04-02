@@ -11,7 +11,9 @@ from docagent.atendimento.models import (
     CanalAtendimento,
     MensagemAtendimento,
     MensagemOrigem,
+    Prioridade,
 )
+from docagent.atendimento.sse import atendimento_lista_sse_manager
 from docagent.database import AsyncDBSession
 
 
@@ -34,16 +36,47 @@ class AtendimentoService:
         await self.session.refresh(msg)
         return msg
 
-    async def assumir(self, atendimento: Atendimento) -> Atendimento:
+    async def assumir(self, atendimento: Atendimento, usuario_id: int, usuario_nome: str) -> Atendimento:
         atendimento.status = AtendimentoStatus.HUMANO
+        atendimento.assumido_por_id = usuario_id
+        atendimento.assumido_por_nome = usuario_nome
         await self.session.flush()
         await self.session.refresh(atendimento)
         return atendimento
 
     async def devolver(self, atendimento: Atendimento) -> Atendimento:
         atendimento.status = AtendimentoStatus.ATIVO
+        atendimento.assumido_por_id = None
+        atendimento.assumido_por_nome = None
         await self.session.flush()
         await self.session.refresh(atendimento)
+        return atendimento
+
+    async def sinalizar_humano(self, atendimento: Atendimento) -> Atendimento:
+        """Marca o atendimento como URGENTE e transfere para operador humano."""
+        atendimento.prioridade = Prioridade.URGENTE
+        atendimento.status = AtendimentoStatus.HUMANO
+        await self.session.flush()
+        await self.session.refresh(atendimento)
+        await atendimento_lista_sse_manager.broadcast(atendimento.tenant_id, {
+            "type": "ATENDIMENTO_ATUALIZADO",
+            "atendimento": {
+                "id": atendimento.id,
+                "numero": atendimento.numero,
+                "nome_contato": atendimento.nome_contato,
+                "canal": atendimento.canal.value,
+                "instancia_id": atendimento.instancia_id,
+                "telegram_instancia_id": atendimento.telegram_instancia_id,
+                "tenant_id": atendimento.tenant_id,
+                "status": atendimento.status.value,
+                "prioridade": atendimento.prioridade.value,
+                "assumido_por_id": atendimento.assumido_por_id,
+                "assumido_por_nome": atendimento.assumido_por_nome,
+                "contato_id": atendimento.contato_id,
+                "created_at": atendimento.created_at.isoformat() if atendimento.created_at else None,
+                "updated_at": atendimento.updated_at.isoformat() if atendimento.updated_at else None,
+            },
+        })
         return atendimento
 
     async def encerrar(self, atendimento: Atendimento) -> Atendimento:

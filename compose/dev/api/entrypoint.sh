@@ -16,6 +16,9 @@ from docagent.whatsapp.models import WhatsappInstancia  # garante que a tabela �
 from docagent.telegram.models import TelegramInstancia  # noqa
 from docagent.atendimento.models import Atendimento, MensagemAtendimento, Contato  # noqa
 from docagent.mcp_server.models import McpServer, McpTool  # noqa
+from docagent.admin.models import Admin  # noqa
+from docagent.system_config.models import SystemConfig  # noqa
+from docagent.agente.defaults import AGENTES_PADRAO
 from docagent.auth.security import get_password_hash
 from docagent.settings import Settings
 
@@ -55,71 +58,98 @@ async def main():
                 await session.flush()
                 print(f'[entrypoint] Usuário {username!r} criado (tenant_id={tenant.id}).')
 
-    # Seed agentes padrão se não existir nenhum
+    # Seed admin global (sys-mgmt)
     async with SessionLocal() as session:
         async with session.begin():
-            result = await session.execute(select(Agente))
-            if not result.scalars().first():
-                agentes_padrao = [
-                    Agente(
-                        nome='Analista de Documentos',
-                        descricao='Especializado em analisar PDFs carregados pelo usuário.',
-                        skill_names=['rag_search', 'web_search'],
-                        ativo=True,
-                    ),
-                    Agente(
-                        nome='Pesquisador Web',
-                        descricao='Busca informações atuais na internet sem depender de documentos.',
-                        skill_names=['web_search'],
-                        ativo=True,
-                    ),
-                ]
-                for a in agentes_padrao:
-                    session.add(a)
-                print('[entrypoint] Agentes padrão criados.')
+            result = await session.execute(select(Admin).where(Admin.username == username))
+            existing_admin = result.scalar_one_or_none()
+            if existing_admin:
+                print('[entrypoint] Admin ' + repr(username) + ' já existe, pulando seed de admin.')
+            else:
+                admin = Admin(
+                    username=username,
+                    email=username + '@docagent.com',
+                    password=get_password_hash(password),
+                    nome='Administrador',
+                    ativo=True,
+                )
+                session.add(admin)
+                await session.flush()
+                print('[entrypoint] Admin ' + repr(username) + ' criado.')
 
-    # Seed servidores MCP de exemplo se não existir nenhum
+    # Seed agentes padrão — upsert por nome para cada tenant
+    # Garante que novos agentes adicionados ao catálogo cheguem a todos os tenants existentes
     async with SessionLocal() as session:
         async with session.begin():
-            result = await session.execute(select(McpServer))
-            if not result.scalars().first():
-                servidores_exemplo = [
-                    McpServer(
-                        nome='Fetch',
-                        descricao='Busca e converte o conteúdo de qualquer URL para texto. Requer uvx (uv).',
-                        command='uvx',
-                        args=['mcp-server-fetch'],
-                        env={},
-                        ativo=False,
-                    ),
-                    McpServer(
-                        nome='Memory',
-                        descricao='Grafo de conhecimento persistente: o agente pode salvar e recuperar fatos entre conversas. Requer Node.js.',
-                        command='npx',
-                        args=['-y', '@modelcontextprotocol/server-memory'],
-                        env={},
-                        ativo=False,
-                    ),
-                    McpServer(
-                        nome='Time',
-                        descricao='Fornece data/hora atual e conversão de fusos horários. Requer Node.js.',
-                        command='npx',
-                        args=['-y', '@modelcontextprotocol/server-time'],
-                        env={},
-                        ativo=False,
-                    ),
-                    McpServer(
-                        nome='Puppeteer',
-                        descricao='Automação de browser real: navega páginas, clica, extrai conteúdo e tira screenshots. Requer Node.js e Chromium.',
-                        command='npx',
-                        args=['-y', '@modelcontextprotocol/server-puppeteer'],
-                        env={},
-                        ativo=False,
-                    ),
-                ]
-                for s in servidores_exemplo:
-                    session.add(s)
-                print('[entrypoint] Servidores MCP de exemplo criados (inativos).')
+            tenant_result = await session.execute(select(Tenant).order_by(Tenant.id))
+            for tenant in tenant_result.scalars().all():
+                nomes_result = await session.execute(
+                    select(Agente.nome).where(Agente.tenant_id == tenant.id)
+                )
+                nomes_existentes = {row[0] for row in nomes_result.all()}
+                criados = 0
+                for dados in AGENTES_PADRAO:
+                    if dados['nome'] not in nomes_existentes:
+                        session.add(Agente(**dados, tenant_id=tenant.id))
+                        criados += 1
+                if criados:
+                    print('[entrypoint] ' + str(criados) + ' agente(s) padrão adicionado(s) ao tenant_id=' + str(tenant.id))
+
+    # Seed system config — garante que llm_mode existe com padrão 'local'
+    async with SessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(select(SystemConfig).where(SystemConfig.key == 'llm_mode'))
+            if not result.scalar_one_or_none():
+                session.add(SystemConfig(key='llm_mode', value='local'))
+                print('[entrypoint] SystemConfig llm_mode=local criado.')
+
+    # Seed servidores MCP — upsert por nome (adiciona novos, não sobrescreve existentes)
+    servidores_exemplo = [
+        dict(
+            nome='Fetch',
+            descricao='Busca e converte o conteúdo de qualquer URL para texto. Requer uvx (uv).',
+            command='uvx',
+            args=['mcp-server-fetch'],
+            env={},
+        ),
+        dict(
+            nome='Memory',
+            descricao='Grafo de conhecimento persistente: o agente pode salvar e recuperar fatos entre conversas. Requer Node.js.',
+            command='npx',
+            args=['-y', '@modelcontextprotocol/server-memory'],
+            env={},
+        ),
+        dict(
+            nome='Time',
+            descricao='Fornece data/hora atual e conversão de fusos horários. Requer Node.js.',
+            command='npx',
+            args=['-y', '@modelcontextprotocol/server-time'],
+            env={},
+        ),
+        dict(
+            nome='Puppeteer',
+            descricao='Automação de browser real: navega páginas, clica, extrai conteúdo e tira screenshots. Requer Node.js e Chromium.',
+            command='npx',
+            args=['-y', '@modelcontextprotocol/server-puppeteer'],
+            env={},
+        ),
+        dict(
+            nome='Clima (Open-Meteo)',
+            descricao='Previsão do tempo em tempo real para qualquer cidade. Gratuito, sem chave de API. Dados atualizados a cada hora.',
+            command='uv',
+            args=['run', 'python', '/app/mcp_servers/weather.py'],
+            env={},
+        ),
+    ]
+    async with SessionLocal() as session:
+        async with session.begin():
+            for dados in servidores_exemplo:
+                existe = await session.execute(
+                    select(McpServer).where(McpServer.nome == dados['nome'])
+                )
+                if not existe.scalar_one_or_none():
+                    session.add(McpServer(**dados, ativo=False))
+                    print('[entrypoint] Servidor MCP criado: ' + dados['nome'])
 
 asyncio.run(main())
 "

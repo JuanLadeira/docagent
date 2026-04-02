@@ -19,6 +19,11 @@ class Tenant(Base):
     nome: Mapped[str] = mapped_column(String(100), nullable=False)
     descricao: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # Configuração de LLM por tenant (usada quando llm_mode = "api")
+    llm_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    llm_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    llm_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     # Relationships
     usuarios: Mapped[list["Usuario"]] = relationship(
         back_populates="tenant",

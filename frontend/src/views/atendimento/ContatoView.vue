@@ -36,7 +36,7 @@ onMounted(carregar)
 <template>
   <div class="max-w-3xl mx-auto py-8 px-4">
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-xl font-bold text-gray-800">Contatos</h1>
+      <h1 class="text-xl font-bold text-gray-800 dark:text-slate-100">Contatos</h1>
     </div>
 
     <!-- Busca -->
@@ -45,32 +45,32 @@ onMounted(carregar)
         v-model="busca"
         type="text"
         placeholder="Buscar por nome ou número..."
-        class="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        class="w-full px-4 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
       />
     </div>
 
     <!-- Loading -->
-    <div v-if="carregando" class="text-sm text-gray-400 text-center py-8">Carregando...</div>
+    <div v-if="carregando" class="text-sm text-gray-400 dark:text-slate-500 text-center py-8">Carregando...</div>
 
     <!-- Vazio -->
-    <div v-else-if="contatosFiltrados.length === 0" class="text-sm text-gray-400 text-center py-8">
+    <div v-else-if="contatosFiltrados.length === 0" class="text-sm text-gray-400 dark:text-slate-500 text-center py-8">
       {{ busca ? 'Nenhum contato encontrado' : 'Nenhum contato cadastrado' }}
     </div>
 
     <!-- Lista -->
-    <div v-else class="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+    <div v-else class="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 divide-y divide-gray-100 dark:divide-slate-700">
       <button
         v-for="contato in contatosFiltrados"
         :key="contato.id"
-        class="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+        class="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors text-left"
         @click="router.push(`/contatos/${contato.id}`)"
       >
         <div>
-          <div class="text-sm font-medium text-gray-800">{{ contato.nome }}</div>
-          <div class="text-xs text-gray-500">{{ contato.numero }}</div>
-          <div v-if="contato.email" class="text-xs text-gray-400">{{ contato.email }}</div>
+          <div class="text-sm font-medium text-gray-800 dark:text-slate-100">{{ contato.nome }}</div>
+          <div class="text-xs text-gray-500 dark:text-slate-400">{{ contato.numero }}</div>
+          <div v-if="contato.email" class="text-xs text-gray-400 dark:text-slate-500">{{ contato.email }}</div>
         </div>
-        <div class="text-xs text-gray-400">
+        <div class="text-xs text-gray-400 dark:text-slate-500">
           {{ formatarData(contato.created_at) }}
         </div>
       </button>

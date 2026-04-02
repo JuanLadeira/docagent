@@ -45,9 +45,13 @@ def _setup_overrides(app, session_delete_returns=True):
     from docagent.dependencies import get_session_manager
     from docagent.agente.services import get_agente_service
     from docagent.mcp_server.services import get_mcp_service
+    from docagent.auth.current_user import get_current_user
+    from unittest.mock import MagicMock
+    mock_user = MagicMock(id=1, tenant_id=1, username="owner")
     app.dependency_overrides[get_agente_service] = lambda: _mock_agente_service()
     app.dependency_overrides[get_mcp_service] = lambda: _mock_mcp_service()
     app.dependency_overrides[get_session_manager] = lambda: _mock_session_manager(session_delete_returns)
+    app.dependency_overrides[get_current_user] = lambda: mock_user
 
 
 @pytest.fixture
@@ -61,8 +65,10 @@ def client():
     mock_service = make_mock_service()
     _setup_overrides(app)
 
+    mock_llm = MagicMock()
     with patch("docagent.chat.router.ChatService", return_value=mock_service), \
-         patch("docagent.chat.router.ConfigurableAgent") as MockCA:
+         patch("docagent.chat.router.ConfigurableAgent") as MockCA, \
+         patch("docagent.chat.router.get_tenant_llm", new=AsyncMock(return_value=mock_llm)):
         MockCA.return_value.build.return_value = MagicMock()
         yield TestClient(app), mock_service
 
@@ -79,8 +85,10 @@ def client_with_missing_session():
     _setup_overrides(app, session_delete_returns=False)
     mock_service.delete_session.return_value = False
 
+    mock_llm = MagicMock()
     with patch("docagent.chat.router.ChatService", return_value=mock_service), \
-         patch("docagent.chat.router.ConfigurableAgent") as MockCA:
+         patch("docagent.chat.router.ConfigurableAgent") as MockCA, \
+         patch("docagent.chat.router.get_tenant_llm", new=AsyncMock(return_value=mock_llm)):
         MockCA.return_value.build.return_value = MagicMock()
         yield TestClient(app)
 

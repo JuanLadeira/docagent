@@ -11,6 +11,10 @@ class InstanciaCreate(BaseModel):
     agente_id: int | None = None
 
 
+class InstanciaUpdate(BaseModel):
+    agente_id: int | None = None
+
+
 class InstanciaPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

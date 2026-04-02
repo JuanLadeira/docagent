@@ -27,7 +27,12 @@ class Base(DeclarativeBase):
     )
 
 
-engine = create_async_engine(settings.DOCAGENT_DB_URL, echo=False)
+engine = create_async_engine(
+    settings.DOCAGENT_DB_URL,
+    echo=False,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 

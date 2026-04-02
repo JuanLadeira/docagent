@@ -35,6 +35,7 @@ from docagent.telegram.models import TelegramInstancia
 from docagent.telegram.schemas import (
     TelegramInstanciaCreate,
     TelegramInstanciaPublic,
+    TelegramInstanciaUpdate,
     TelegramUpdate,
 )
 from docagent.telegram.services import TelegramServiceDep
@@ -53,7 +54,7 @@ def _tem_skills_mcp(agente_obj: Agente) -> bool:
     return any(s.startswith("mcp:") for s in agente_obj.skill_names)
 
 
-def _build_agent_obj(agente_obj: Agente, extra_tools: list | None = None) -> BaseAgent:
+def _build_agent_obj(agente_obj: Agente, extra_tools: list | None = None, llm=None) -> BaseAgent:
     config = AgentConfig(
         id=str(agente_obj.id),
         name=agente_obj.nome,
@@ -64,13 +65,14 @@ def _build_agent_obj(agente_obj: Agente, extra_tools: list | None = None) -> Bas
         config,
         system_prompt_override=agente_obj.system_prompt or None,
         extra_tools=extra_tools,
+        llm=llm,
     ).build()
 
 
-def _get_or_build_agent(agente_obj: Agente) -> BaseAgent:
-    cache_key = (agente_obj.id, tuple(agente_obj.skill_names), agente_obj.system_prompt or "")
+def _get_or_build_agent(agente_obj: Agente, llm=None, llm_provider: str = "", llm_model: str = "") -> BaseAgent:
+    cache_key = (agente_obj.id, tuple(agente_obj.skill_names), agente_obj.system_prompt or "", llm_provider, llm_model)
     if cache_key not in _agent_cache:
-        _agent_cache[cache_key] = _build_agent_obj(agente_obj)
+        _agent_cache[cache_key] = _build_agent_obj(agente_obj, llm=llm)
     return _agent_cache[cache_key]
 
 
@@ -92,6 +94,19 @@ async def criar_instancia(
         f"{settings.WEBHOOK_BASE_URL}/api/telegram/webhook/{data.bot_token}"
     )
     return await service.criar_instancia(current_user.tenant_id, data, webhook_url)
+
+
+@router.patch("/instancias/{instancia_id}", response_model=TelegramInstanciaPublic)
+async def atualizar_instancia(
+    instancia_id: int,
+    data: TelegramInstanciaUpdate,
+    current_user: CurrentUser,
+    service: TelegramServiceDep,
+):
+    instancia = await service.obter_instancia(instancia_id, current_user.tenant_id)
+    if not instancia:
+        raise HTTPException(status_code=404, detail="Instância não encontrada")
+    return await service.atualizar_instancia(instancia, data)
 
 
 @router.delete("/instancias/{instancia_id}", status_code=204)
@@ -143,8 +158,6 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
     numero = str(msg.chat.id)
     nome_contato = msg.from_.first_name if msg.from_ else None
     conteudo = msg.text
-    session_id = f"telegram:{numero}"
-
     async with AsyncSessionLocal() as db:
         # Buscar instância pelo token
         result = await db.execute(
@@ -153,6 +166,8 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
         instancia = result.scalar_one_or_none()
         if not instancia:
             return
+
+        session_id = f"telegram:{instancia.tenant_id}:{numero}"
 
         # Buscar agente vinculado
         agente = None
@@ -216,6 +231,8 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
             "tenant_id": atendimento.tenant_id,
             "status": atendimento.status.value,
             "prioridade": atendimento.prioridade.value,
+            "assumido_por_id": atendimento.assumido_por_id,
+            "assumido_por_nome": atendimento.assumido_por_nome,
             "contato_id": atendimento.contato_id,
             "created_at": atendimento.created_at.isoformat() if atendimento.created_at else None,
             "updated_at": atendimento.updated_at.isoformat() if atendimento.updated_at else None,
@@ -252,6 +269,20 @@ async def _executar_agente_e_salvar(
     state = sessions.get(session_id)
     loop = asyncio.get_event_loop()
 
+    # Carregar LLM do tenant (respeita llm_mode global do sistema)
+    from docagent.agent.llm_factory import get_tenant_llm
+    async with AsyncSessionLocal() as llm_db:
+        tenant_llm = await get_tenant_llm(instancia.tenant_id, llm_db)
+    llm_provider = getattr(tenant_llm, "model_name", "") or getattr(tenant_llm, "model", "") or ""
+    llm_model = ""
+
+    # Handoff flag: detecta se a LLM acionou a tool de transferência humana.
+    handoff_flag: dict = {'requested': False}
+    handoff_extra: list = []
+    if 'human_handoff' in agente_obj.skill_names:
+        from docagent.agent.skills.human_handoff import HumanHandoffSkill
+        handoff_extra = [HumanHandoffSkill(flag=handoff_flag).as_tool()]
+
     if _tem_skills_mcp(agente_obj):
         from docagent.mcp_server.models import McpServer
         from docagent.mcp_server.services import load_mcp_tools_for_skills
@@ -264,22 +295,49 @@ async def _executar_agente_e_salvar(
                 servers = list(result.scalars().all())
             mcp_skills = [n for n in agente_obj.skill_names if n.startswith("mcp:")]
             mcp_tools = await load_mcp_tools_for_skills(mcp_skills, servers, stack)
-            agent = _build_agent_obj(agente_obj, extra_tools=mcp_tools)
+            agent = _build_agent_obj(agente_obj, extra_tools=mcp_tools + handoff_extra, llm=tenant_llm)
             final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
     else:
-        agent = _get_or_build_agent(agente_obj)
+        extra = handoff_extra or None
+        if extra:
+            agent = _build_agent_obj(agente_obj, extra_tools=extra, llm=tenant_llm)
+        else:
+            agent = _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider, llm_model=llm_model)
         final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
 
     if agent.last_state:
         sessions.update(session_id, agent.last_state)
 
+    # Se a LLM acionou a tool de handoff, sinalizar no atendimento.
+    if handoff_flag['requested']:
+        from docagent.atendimento.models import Atendimento
+        from docagent.atendimento.services import AtendimentoService
+        async with AsyncSessionLocal() as db:
+            _at = await db.get(Atendimento, atendimento_id)
+            if _at:
+                await AtendimentoService(db).sinalizar_humano(_at)
+                await db.commit()
+
     answer = ""
     if final_state and final_state.get("messages"):
         last_msg = final_state["messages"][-1]
         if isinstance(last_msg, AIMessage):
-            answer = last_msg.content or ""
+            from docagent.utils import strip_emojis
+            answer = strip_emojis(last_msg.content or "")
     if not answer:
         return
+
+    # Marcador de pedido confirmado — mesmo padrão do WhatsApp router.
+    if "[PEDIDO_CONFIRMADO]" in answer:
+        answer = answer.replace("[PEDIDO_CONFIRMADO]", "").strip()
+        if not handoff_flag['requested']:
+            from docagent.atendimento.models import Atendimento as _Atendimento
+            from docagent.atendimento.services import AtendimentoService as _AtSvc
+            async with AsyncSessionLocal() as db:
+                _at = await db.get(_Atendimento, atendimento_id)
+                if _at:
+                    await _AtSvc(db).sinalizar_humano(_at)
+                    await db.commit()
 
     # Salvar resposta do agente
     async with AsyncSessionLocal() as db:
@@ -317,7 +375,12 @@ async def _executar_e_responder_direto(
     state = sessions.get(session_id)
     loop = asyncio.get_event_loop()
 
-    agent = _get_or_build_agent(agente_obj)
+    from docagent.agent.llm_factory import get_tenant_llm
+    async with AsyncSessionLocal() as llm_db:
+        tenant_llm = await get_tenant_llm(instancia.tenant_id, llm_db)
+    llm_provider = getattr(tenant_llm, "model_name", "") or getattr(tenant_llm, "model", "") or ""
+
+    agent = _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider)
     final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
 
     if agent.last_state:
@@ -327,12 +390,13 @@ async def _executar_e_responder_direto(
     if final_state and final_state.get("messages"):
         last_msg = final_state["messages"][-1]
         if isinstance(last_msg, AIMessage):
-            answer = last_msg.content or ""
+            from docagent.utils import strip_emojis
+            answer = strip_emojis(last_msg.content or "")
     if not answer:
         return
 
     try:
-        chat_id = int(session_id.replace("telegram:", ""))
+        chat_id = int(session_id.rsplit(":", 1)[-1])
         async with get_telegram_client(instancia.bot_token) as client:
             await client.post("/sendMessage", json={"chat_id": chat_id, "text": answer})
     except (ValueError, Exception):

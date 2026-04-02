@@ -18,7 +18,7 @@ from tests.test_atendimento.conftest import (
 @pytest_asyncio.fixture
 async def setup(db_session):
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     instancia = await _criar_instancia(db_session, tenant.id, agente.id)
     return tenant, instancia
 
@@ -88,7 +88,7 @@ async def test_assumir(db_session, setup, base_service):
     """Assumir muda status para HUMANO."""
     tenant, instancia = setup
     atendimento = await _criar_atendimento(db_session, instancia.id, tenant.id)
-    at = await base_service.assumir(atendimento)
+    at = await base_service.assumir(atendimento, usuario_id=1, usuario_nome="Operador")
     assert at.status == AtendimentoStatus.HUMANO
 
 

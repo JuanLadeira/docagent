@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { useApiStatusStore } from '@/stores/apiStatus'
 
 const apiClient = axios.create({
   baseURL: '/api',
@@ -14,6 +15,13 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (r) => r,
   (error) => {
+    if (error.response?.status === 502 || error.response?.status === 503 || !error.response) {
+      try {
+        useApiStatusStore().reportDown()
+      } catch {
+        // store not ready yet (before pinia init)
+      }
+    }
     if (error.response?.status === 401) {
       sessionStorage.removeItem('token')
       window.location.href = '/login'
@@ -100,6 +108,8 @@ export interface Atendimento {
   tenant_id: number
   status: AtendimentoStatus
   prioridade: Prioridade
+  assumido_por_id: number | null
+  assumido_por_nome: string | null
   contato_id: number | null
   created_at: string
   updated_at: string
@@ -268,15 +278,25 @@ export const api = {
   listInstancias: () => apiClient.get<WhatsappInstancia[]>('/whatsapp/instancias'),
   createInstancia: (data: InstanciaCreate) =>
     apiClient.post<WhatsappInstancia>('/whatsapp/instancias', data),
+  updateInstancia: (id: number, data: { agente_id: number | null }) =>
+    apiClient.patch<WhatsappInstancia>(`/whatsapp/instancias/${id}`, data),
   deleteInstancia: (id: number) => apiClient.delete(`/whatsapp/instancias/${id}`),
   getQrcode: (id: number) => apiClient.get<{ base64?: string; status?: string }>(`/whatsapp/instancias/${id}/qrcode`),
   sincronizarStatus: (id: number) =>
     apiClient.get<WhatsappInstancia>(`/whatsapp/instancias/${id}/status`),
 
+  // LLM Config (tenant owner)
+  getLlmConfig: () =>
+    apiClient.get<{ llm_provider: string | null; llm_model: string | null; llm_api_key_set: boolean }>('/tenants/me/llm-config'),
+  updateLlmConfig: (data: { llm_provider?: string | null; llm_model?: string | null; llm_api_key?: string | null }) =>
+    apiClient.put('/tenants/me/llm-config', data),
+
   // Telegram
   listTelegramInstancias: () => apiClient.get<TelegramInstancia[]>('/telegram/instancias'),
   createTelegramInstancia: (data: TelegramInstanciaCreate) =>
     apiClient.post<TelegramInstancia>('/telegram/instancias', data),
+  updateTelegramInstancia: (id: number, data: { agente_id: number | null }) =>
+    apiClient.patch<TelegramInstancia>(`/telegram/instancias/${id}`, data),
   deleteTelegramInstancia: (id: number) => apiClient.delete(`/telegram/instancias/${id}`),
   configurarTelegramWebhook: (id: number) =>
     apiClient.post<TelegramInstancia>(`/telegram/instancias/${id}/webhook/configurar`),

@@ -20,10 +20,13 @@ def _make_mock_agentes():
 def client():
     from docagent.api import app
     from docagent.agente.services import get_agente_service
+    from docagent.auth.current_user import get_current_user
 
+    mock_user = MagicMock(id=1, tenant_id=1, username="owner")
     svc = MagicMock()
     svc.get_all = AsyncMock(return_value=_make_mock_agentes())
     app.dependency_overrides[get_agente_service] = lambda: svc
+    app.dependency_overrides[get_current_user] = lambda: mock_user
 
     yield TestClient(app)
 

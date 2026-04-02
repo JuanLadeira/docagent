@@ -9,6 +9,7 @@ const navItems = [
   { path: '/sys-mgmt/tenants', label: 'Tenants', icon: '🏢' },
   { path: '/sys-mgmt/planos', label: 'Planos', icon: '📋' },
   { path: '/sys-mgmt/assinaturas', label: 'Assinaturas', icon: '📄' },
+  { path: '/sys-mgmt/configuracoes', label: 'Configurações', icon: '⚙️' },
 ]
 </script>
 
@@ -17,8 +18,9 @@ const navItems = [
     <!-- Sidebar admin -->
     <aside class="w-56 flex-shrink-0 flex flex-col border-r border-slate-700">
       <div class="p-5 border-b border-slate-700">
-        <div class="text-white font-bold text-sm">DocAgent Admin</div>
-        <div class="text-slate-400 text-xs mt-0.5">{{ adminAuth.username }}</div>
+        <div class="text-white font-bold text-sm">z3ndocs</div>
+        <div class="text-slate-400 text-xs mt-0.5">Painel Admin</div>
+        <div class="text-slate-500 text-xs mt-1 truncate">{{ adminAuth.username }}</div>
       </div>
 
       <nav class="flex-1 p-3 space-y-1">
@@ -48,8 +50,8 @@ const navItems = [
       </div>
     </aside>
 
-    <!-- Conteudo -->
-    <main class="flex-1 bg-gray-50 overflow-y-auto">
+    <!-- Conteúdo -->
+    <main class="flex-1 bg-gray-50 dark:bg-slate-900 overflow-y-auto">
       <RouterView />
     </main>
   </div>

@@ -116,7 +116,7 @@ async def test_mensagem_sem_texto_ignorada(client, db_session):
 async def test_cria_atendimentos_false_nao_cria_fila(client, db_session):
     """Bot com cria_atendimentos=False não cria Atendimento."""
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     await _criar_telegram_instancia(
         db_session, tenant.id, agente_id=agente.id, cria_atendimentos=False
     )
@@ -133,7 +133,7 @@ async def test_cria_atendimentos_false_nao_cria_fila(client, db_session):
 @pytest.mark.asyncio
 async def test_primeiro_contato_cria_atendimento(client, db_session):
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     await _criar_telegram_instancia(db_session, tenant.id, agente_id=agente.id)
 
     mock_agent_cls, _ = _mock_agent_com_resposta()
@@ -152,7 +152,7 @@ async def test_primeiro_contato_cria_atendimento(client, db_session):
 @pytest.mark.asyncio
 async def test_atendimento_tem_canal_telegram(client, db_session):
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     await _criar_telegram_instancia(db_session, tenant.id, agente_id=agente.id)
 
     mock_agent_cls, _ = _mock_agent_com_resposta()
@@ -170,7 +170,7 @@ async def test_atendimento_tem_canal_telegram(client, db_session):
 @pytest.mark.asyncio
 async def test_segundo_contato_retoma_atendimento(client, db_session):
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     inst = await _criar_telegram_instancia(db_session, tenant.id, agente_id=agente.id)
     existing = await _criar_atendimento_telegram(db_session, inst.id, tenant.id, numero="123456789")
 
@@ -189,7 +189,7 @@ async def test_segundo_contato_retoma_atendimento(client, db_session):
 @pytest.mark.asyncio
 async def test_humano_nao_aciona_agente(client, db_session):
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     inst = await _criar_telegram_instancia(db_session, tenant.id, agente_id=agente.id)
     await _criar_atendimento_telegram(db_session, inst.id, tenant.id, numero="123456789", status="HUMANO")
 
@@ -204,7 +204,7 @@ async def test_humano_nao_aciona_agente(client, db_session):
 @pytest.mark.asyncio
 async def test_ativo_executa_agente_e_salva_resposta(client, db_session):
     tenant, _, _ = await _criar_tenant_e_owner(db_session)
-    agente = await _criar_agente(db_session)
+    agente = await _criar_agente(db_session, tenant.id)
     await _criar_telegram_instancia(db_session, tenant.id, agente_id=agente.id)
 
     mock_agent_cls, mock_agent = _mock_agent_com_resposta("Resposta Telegram")

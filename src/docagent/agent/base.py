@@ -11,8 +11,8 @@ from abc import ABC, abstractmethod
 from typing import Annotated, Iterator
 
 from dotenv import load_dotenv
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
-from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -34,18 +34,16 @@ class AgentState(TypedDict):
     summary: str
 
 
-def _build_graph(tools: list, system_prompt: str):
+def _build_graph(tools: list, system_prompt: str, llm: "BaseChatModel | None" = None):
     """
     Constroi o StateGraph do agente ReAct com memoria.
 
     Funcao de modulo (nao metodo) para ser facilmente substituida em testes
     via patch("docagent.base_agent._build_graph").
     """
-    llm = ChatOllama(
-        model=os.getenv("LLM_MODEL", "qwen2.5:7b"),
-        base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-        temperature=0,
-    )
+    if llm is None:
+        from docagent.agent.llm_factory import get_llm
+        llm = get_llm()
     llm_with_tools = llm.bind_tools(tools) if tools else llm
 
     def agent_node(state: AgentState) -> dict:
@@ -117,9 +115,9 @@ class BaseAgent(ABC):
     @abstractmethod
     def system_prompt(self) -> str: ...
 
-    def build(self) -> "BaseAgent":
+    def build(self, llm: "BaseChatModel | None" = None) -> "BaseAgent":
         """Constroi o grafo interno. Retorna self para encadeamento."""
-        self._graph = _build_graph(self.tools, self.system_prompt)
+        self._graph = _build_graph(self.tools, self.system_prompt, llm=llm)
         return self
 
     def run(self, question: str, state: dict | None = None) -> dict:
@@ -130,10 +128,10 @@ class BaseAgent(ABC):
         if state is None:
             state = {"messages": [], "summary": ""}
 
+        prev_messages = [m for m in state["messages"] if not isinstance(m, SystemMessage)]
         input_state = {
             **state,
-            "messages": list(state["messages"]) + [
-                SystemMessage(content=self.system_prompt),
+            "messages": [SystemMessage(content=self.system_prompt)] + prev_messages + [
                 HumanMessage(content=question),
             ],
         }
@@ -153,10 +151,10 @@ class BaseAgent(ABC):
         if state is None:
             state = {"messages": [], "summary": ""}
 
+        prev_messages = [m for m in state["messages"] if not isinstance(m, SystemMessage)]
         input_state = {
             **state,
-            "messages": list(state["messages"]) + [
-                SystemMessage(content=self.system_prompt),
+            "messages": [SystemMessage(content=self.system_prompt)] + prev_messages + [
                 HumanMessage(content=question),
             ],
         }

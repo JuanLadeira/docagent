@@ -18,6 +18,7 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./data/docagent.db:/app/docagent.db
+      - ./mcp_servers:/app/mcp_servers
     restart: unless-stopped
 
   ui:

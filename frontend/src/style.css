@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Habilita dark: variant baseado na classe .dark no elemento raiz */
+@custom-variant dark (&:where(.dark, .dark *));
+
 body {
   font-family: 'Inter', sans-serif;
 }

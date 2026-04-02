@@ -21,6 +21,9 @@ RUN uv sync --no-dev --frozen
 # Copia o codigo fonte
 COPY src/ ./src/
 
+# Copia os servidores MCP customizados
+COPY mcp_servers/ ./mcp_servers/
+
 # Copia o entrypoint de dev
 COPY compose/dev/api/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
