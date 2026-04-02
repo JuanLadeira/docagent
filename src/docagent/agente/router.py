@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from docagent.agente.documento_service import DocumentoServiceDep
 from docagent.agente.schemas import (
@@ -12,6 +12,7 @@ from docagent.agente.services import AgenteServiceDep
 from docagent.agent.skills import SKILL_REGISTRY
 from docagent.auth.current_user import CurrentOwner, CurrentUser
 from docagent.chat.schemas import AgentInfo, SkillInfo
+from docagent.dependencies import require_quota
 
 router = APIRouter(
     prefix="/api/agentes",
@@ -59,7 +60,12 @@ async def get_agente(agente_id: int, current_user: CurrentUser, service: AgenteS
     return agente
 
 
-@router.post("/", response_model=AgentePublic, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=AgentePublic,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_quota("agentes")],
+)
 async def create_agente(data: AgenteCreate, current_user: CurrentOwner, service: AgenteServiceDep):
     return await service.create(data, tenant_id=current_user.tenant_id)
 
@@ -100,6 +106,7 @@ async def listar_documentos(
     "/{agente_id}/documentos",
     response_model=DocumentoUploadResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[require_quota("documentos")],
 )
 async def upload_documento(
     agente_id: int,
