@@ -18,9 +18,29 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Novos campos no Plano
-    op.add_column("planos", sa.Column("limite_agentes", sa.Integer(), nullable=False, server_default="1"))
-    op.add_column("planos", sa.Column("ciclo_dias", sa.Integer(), nullable=False, server_default="30"))
+    # Cria tabela planos se não existir
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "planos" not in inspector.get_table_names():
+        op.create_table(
+            "planos",
+            sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+            sa.Column("nome", sa.String(100), nullable=False, unique=True),
+            sa.Column("descricao", sa.String(500), nullable=False, server_default=""),
+            sa.Column("limite_agentes", sa.Integer(), nullable=False, server_default="1"),
+            sa.Column("limite_documentos", sa.Integer(), nullable=False, server_default="10"),
+            sa.Column("limite_sessoes", sa.Integer(), nullable=False, server_default="5"),
+            sa.Column("ciclo_dias", sa.Integer(), nullable=False, server_default="30"),
+            sa.Column("preco_mensal", sa.Numeric(10, 2), nullable=False, server_default="0.00"),
+            sa.Column("ativo", sa.Boolean(), nullable=False, server_default="true"),
+            sa.Column("created_at", sa.DateTime(), nullable=False),
+            sa.Column("updated_at", sa.DateTime(), nullable=False),
+            sa.PrimaryKeyConstraint("id"),
+        )
+    else:
+        # Tabela já existe — só adiciona as novas colunas
+        op.add_column("planos", sa.Column("limite_agentes", sa.Integer(), nullable=False, server_default="1"))
+        op.add_column("planos", sa.Column("ciclo_dias", sa.Integer(), nullable=False, server_default="30"))
 
     # Tabela Assinatura
     op.create_table(
@@ -43,5 +63,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("assinatura")
-    op.drop_column("planos", "ciclo_dias")
-    op.drop_column("planos", "limite_agentes")
+    op.drop_table("planos")

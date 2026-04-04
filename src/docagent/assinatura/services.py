@@ -14,6 +14,10 @@ class AssinaturaService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def get_all(self) -> list[Assinatura]:
+        result = await self.session.execute(select(Assinatura).order_by(Assinatura.id))
+        return list(result.scalars().all())
+
     async def get_by_tenant(self, tenant_id: int) -> Assinatura | None:
         result = await self.session.execute(
             select(Assinatura).where(Assinatura.tenant_id == tenant_id)

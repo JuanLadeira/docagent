@@ -14,6 +14,7 @@ class AssinaturaPublic(BaseModel):
     tenant_id: int
     plano_id: int
     plano_nome: str
+    tenant_nome: str | None = None
     ativo: bool
     data_inicio: datetime
     data_proxima_renovacao: datetime
@@ -26,6 +27,7 @@ class AssinaturaPublic(BaseModel):
             tenant_id=assinatura.tenant_id,
             plano_id=assinatura.plano_id,
             plano_nome=assinatura.plano.nome,
+            tenant_nome=assinatura.tenant.nome if assinatura.tenant else None,
             ativo=assinatura.ativo,
             data_inicio=assinatura.data_inicio,
             data_proxima_renovacao=assinatura.data_proxima_renovacao,
