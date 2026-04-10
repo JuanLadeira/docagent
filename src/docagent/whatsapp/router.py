@@ -13,7 +13,9 @@ Notificações em tempo real (QR code, status):
   Webhook → sse_manager.broadcast()
 """
 import asyncio
+import base64
 import json
+import logging
 import re
 from contextlib import AsyncExitStack
 
@@ -340,10 +342,154 @@ async def _resolver_lid_para_numero(instance_name: str, lid_jid: str) -> str | N
     return None
 
 
+_log = logging.getLogger("docagent.webhook")
+
+
+async def _baixar_midia_evolution(instance_name: str, key: dict) -> bytes:
+    """Baixa mídia de uma mensagem WhatsApp via Evolution API e retorna bytes brutos."""
+    settings = Settings()
+    async with httpx.AsyncClient(
+        base_url=settings.EVOLUTION_API_URL,
+        headers={"apikey": settings.EVOLUTION_API_KEY},
+        timeout=30.0,
+    ) as client:
+        r = await client.post(
+            f"/chat/getBase64FromMediaMessage/{instance_name}",
+            json={"key": key, "convertToMp4": False},
+        )
+        r.raise_for_status()
+        b64 = r.json().get("base64", "")
+        return base64.b64decode(b64) if b64 else b""
+
+
+async def _executar_agente_whatsapp(
+    instancia: "WhatsappInstancia",
+    agente_obj: "Agente",
+    conteudo: str,
+    session_id: str,
+    tenant_id: int,
+    atendimento_id: int,
+) -> str:
+    """Executa o agente LangGraph para o caminho de áudio e retorna a resposta em texto."""
+    sessions = get_session_manager()
+    state = sessions.get(session_id)
+    loop = asyncio.get_event_loop()
+
+    from docagent.agent.llm_factory import get_tenant_llm
+    async with AsyncSessionLocal() as llm_db:
+        tenant_llm = await get_tenant_llm(tenant_id, llm_db)
+    llm_provider = getattr(tenant_llm, "model_name", "") or getattr(tenant_llm, "model", "") or ""
+
+    handoff_flag: dict = {"requested": False}
+    handoff_extra: list = []
+    if "human_handoff" in agente_obj.skill_names:
+        from docagent.agent.skills.human_handoff import HumanHandoffSkill
+        handoff_extra = [HumanHandoffSkill(flag=handoff_flag).as_tool()]
+
+    if _tem_skills_mcp(agente_obj):
+        from docagent.mcp_server.models import McpServer
+        from docagent.mcp_server.services import load_mcp_tools_for_skills
+        from sqlalchemy.orm import selectinload
+        async with AsyncExitStack() as stack:
+            async with AsyncSessionLocal() as mcp_db:
+                result = await mcp_db.execute(
+                    select(McpServer).options(selectinload(McpServer.tools))
+                )
+                servers = list(result.scalars().all())
+            mcp_skills = [n for n in agente_obj.skill_names if n.startswith("mcp:")]
+            mcp_tools = await load_mcp_tools_for_skills(mcp_skills, servers, stack)
+            agent = _build_agent_obj(agente_obj, extra_tools=mcp_tools + handoff_extra, llm=tenant_llm)
+            final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
+    else:
+        extra = handoff_extra or None
+        if extra:
+            agent = _build_agent_obj(agente_obj, extra_tools=extra, llm=tenant_llm)
+        else:
+            agent = _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider, llm_model="")
+        final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
+
+    if agent.last_state:
+        sessions.update(session_id, agent.last_state)
+
+    if handoff_flag["requested"]:
+        async with AsyncSessionLocal() as db:
+            from docagent.atendimento.services import AtendimentoService
+            _at = await db.get(Atendimento, atendimento_id)
+            if _at:
+                await AtendimentoService(db).sinalizar_humano(_at)
+                await db.commit()
+
+    answer = ""
+    if final_state and final_state.get("messages"):
+        last_msg = final_state["messages"][-1]
+        if isinstance(last_msg, AIMessage):
+            from docagent.utils import strip_emojis
+            answer = strip_emojis(last_msg.content or "")
+    return answer
+
+
+async def _enviar_resposta_whatsapp(
+    instance_name: str,
+    numero: str,
+    answer: str,
+    audio_config,
+) -> None:
+    """Envia a resposta do agente via WhatsApp: áudio, texto ou ambos, conforme config."""
+    from docagent.audio.models import ModoResposta, TtsProvider
+    from docagent.audio.services import AudioService
+
+    settings = Settings()
+
+    if audio_config is not None and audio_config.tts_habilitado:
+        try:
+            audio_bytes = await AudioService.sintetizar(answer, audio_config)
+            b64_audio = base64.b64encode(audio_bytes).decode()
+            async with httpx.AsyncClient(
+                base_url=settings.EVOLUTION_API_URL,
+                headers={"apikey": settings.EVOLUTION_API_KEY},
+                timeout=60.0,
+            ) as client:
+                await client.post(
+                    f"/message/sendWhatsAppAudio/{instance_name}",
+                    json={"number": numero, "audio": b64_audio, "encoding": True},
+                )
+            if audio_config.modo_resposta != ModoResposta.AUDIO_APENAS.value:
+                async with httpx.AsyncClient(
+                    base_url=settings.EVOLUTION_API_URL,
+                    headers={"apikey": settings.EVOLUTION_API_KEY},
+                    timeout=60.0,
+                ) as client:
+                    await client.post(
+                        f"/message/sendText/{instance_name}",
+                        json={"number": numero, "text": answer},
+                    )
+        except Exception:
+            _log.exception("Erro ao sintetizar/enviar áudio — enviando texto como fallback")
+            await _enviar_texto_evolution(instance_name, numero, answer, settings)
+    else:
+        await _enviar_texto_evolution(instance_name, numero, answer, settings)
+
+
+async def _enviar_texto_evolution(instance_name: str, numero: str, answer: str, settings: Settings) -> None:
+    typing_delay_ms = max(1500, min(5000, len(answer) * 30))
+    async with httpx.AsyncClient(
+        base_url=settings.EVOLUTION_API_URL,
+        headers={"apikey": settings.EVOLUTION_API_KEY},
+        timeout=60.0,
+    ) as client:
+        await client.post(
+            f"/message/sendText/{instance_name}",
+            json={
+                "number": numero,
+                "text": answer,
+                "options": {"delay": typing_delay_ms, "presence": "composing"},
+            },
+        )
+
+
 async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
     """Recebe mensagem do WhatsApp, gerencia atendimento e executa o agente se ATIVO."""
-    import logging
-    log = logging.getLogger("docagent.webhook")
+    log = _log
     try:
         data = evento.data
         key = data.get("key", {})
@@ -368,13 +514,47 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         else:
             numero = re.sub(r"[^\d]", "", remote_jid.replace("@s.whatsapp.net", ""))
 
+        message_content = data.get("message", {})
         conteudo = (
-            data.get("message", {}).get("conversation")
-            or data.get("message", {}).get("extendedTextMessage", {}).get("text")
+            message_content.get("conversation")
+            or message_content.get("extendedTextMessage", {}).get("text")
             or ""
         )
-        if not conteudo:
+        audio_message = message_content.get("audioMessage")
+
+        # Se não há texto nem áudio, nada a processar
+        if not conteudo and not audio_message:
             return
+
+        # ── Caminho de áudio: STT antes de seguir ────────────────────────────
+        audio_config = None
+        if audio_message and not conteudo:
+            async with AsyncSessionLocal() as db_audio:
+                inst_result = await db_audio.execute(
+                    select(WhatsappInstancia).where(WhatsappInstancia.instance_name == evento.instance)
+                )
+                inst_audio = inst_result.scalar_one_or_none()
+                if not inst_audio:
+                    return
+                from docagent.audio.services import AudioService
+                audio_config = await AudioService.resolver_config(
+                    inst_audio.agente_id, inst_audio.tenant_id, db_audio
+                )
+
+            if not audio_config.stt_habilitado:
+                return  # áudio ignorado quando STT desabilitado
+
+            try:
+                audio_bytes = await _baixar_midia_evolution(evento.instance, key)
+                from docagent.audio.services import AudioService
+                conteudo = await AudioService.transcrever(audio_bytes, audio_config)
+            except Exception:
+                log.exception("Erro ao transcrever áudio instance=%s", evento.instance)
+                return
+
+            if not conteudo.strip():
+                return
+        # ─────────────────────────────────────────────────────────────────────
 
         # Buscar instância, agente e gerenciar atendimento
         async with AsyncSessionLocal() as db:
@@ -476,20 +656,45 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         if atendimento_status == AtendimentoStatus.HUMANO or not agente or is_lid:
             return
 
-        # Executar agente — executor libera o event loop durante a inferência LLM.
-        # Agentes com skills MCP carregam tools via AsyncExitStack (conexão ativa durante run).
+        # ── Caminho de áudio: usa funções extraídas ───────────────────────────
+        if audio_message:
+            answer = await _executar_agente_whatsapp(
+                instancia=None,  # não usado internamente — agente_obj passado diretamente
+                agente_obj=agente_obj,
+                conteudo=conteudo,
+                session_id=session_id,
+                tenant_id=atendimento_tenant_id,
+                atendimento_id=atendimento_id,
+            )
+            if not answer:
+                return
+
+            async with AsyncSessionLocal() as db:
+                db.add(MensagemAtendimento(
+                    atendimento_id=atendimento_id,
+                    origem=MensagemOrigem.AGENTE,
+                    conteudo=answer,
+                ))
+                await db.commit()
+
+            await atendimento_sse_manager.broadcast(atendimento_id, {
+                "type": "NOVA_MENSAGEM", "origem": "AGENTE", "conteudo": answer,
+            })
+            await _enviar_resposta_whatsapp(evento.instance, numero, answer, audio_config)
+            return
+        # ─────────────────────────────────────────────────────────────────────
+
+        # Caminho de texto — lógica original preservada
         sessions = get_session_manager()
         state = sessions.get(session_id)
         loop = asyncio.get_event_loop()
 
-        # Carregar LLM do tenant (respeita llm_mode global do sistema)
         from docagent.agent.llm_factory import get_tenant_llm
         async with AsyncSessionLocal() as llm_db:
             tenant_llm = await get_tenant_llm(atendimento_tenant_id, llm_db)
         llm_provider = getattr(tenant_llm, "model_name", "") or getattr(tenant_llm, "model", "") or ""
         llm_model = ""
 
-        # Handoff flag: detecta se a LLM acionou a tool de transferência humana.
         handoff_flag: dict = {'requested': False}
         handoff_extra: list = []
         if 'human_handoff' in agente_obj.skill_names:
@@ -520,7 +725,6 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         if agent.last_state:
             sessions.update(session_id, agent.last_state)
 
-        # Se a LLM acionou a tool de handoff, sinalizar no atendimento.
         if handoff_flag['requested']:
             async with AsyncSessionLocal() as db:
                 from docagent.atendimento.services import AtendimentoService
@@ -538,9 +742,6 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         if not answer:
             return
 
-        # Marcador de pedido confirmado: o agente inclui [PEDIDO_CONFIRMADO] na resposta
-        # quando o cliente confirmar o pedido. O webhook detecta, remove o marcador e
-        # sinaliza o atendimento — mais confiável que tool calling em modelos pequenos.
         if "[PEDIDO_CONFIRMADO]" in answer:
             answer = answer.replace("[PEDIDO_CONFIRMADO]", "").strip()
             if not handoff_flag['requested']:
@@ -551,7 +752,6 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
                         await AtendimentoService(db).sinalizar_humano(_at)
                         await db.commit()
 
-        # Salvar resposta do agente
         async with AsyncSessionLocal() as db:
             msg_agente = MensagemAtendimento(
                 atendimento_id=atendimento_id,
@@ -561,17 +761,13 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
             db.add(msg_agente)
             await db.commit()
 
-        # Broadcast resposta do agente via SSE
         await atendimento_sse_manager.broadcast(atendimento_id, {
             "type": "NOVA_MENSAGEM",
             "origem": "AGENTE",
             "conteudo": answer,
         })
 
-        # Enviar resposta via Evolution API simulando digitação humana.
-        # options.delay faz a Evolution API exibir "digitando..." por N ms antes de enviar.
-        # Calculamos o delay com base no tamanho da resposta (~30ms por caractere),
-        # limitado entre 1.5 e 5 segundos para parecer natural.
+        # Envio texto com typing delay (caminho original)
         typing_delay_ms = max(1500, min(5000, len(answer) * 30))
         settings = Settings()
         async with httpx.AsyncClient(
@@ -584,10 +780,7 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
                 json={
                     "number": numero,
                     "text": answer,
-                    "options": {
-                        "delay": typing_delay_ms,
-                        "presence": "composing",
-                    },
+                    "options": {"delay": typing_delay_ms, "presence": "composing"},
                 },
             )
     except Exception as e:
