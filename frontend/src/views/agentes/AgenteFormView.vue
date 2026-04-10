@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type AgenteCreate, type McpServer, type Documento } from '@/api/client'
 import { useAgentsStore } from '@/stores/agents'
+import AudioConfigForm from '@/components/AudioConfigForm.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -242,6 +243,9 @@ onMounted(load)
             <label for="ativo" class="text-sm text-slate-600 dark:text-slate-300">Agente ativo</label>
           </div>
         </div>
+
+        <!-- Card Áudio — apenas no modo edição -->
+        <AudioConfigForm v-if="isEditing" :agente-id="agenteId" />
 
         <!-- Card Documentos — apenas no modo edição -->
         <div v-if="isEditing" class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
