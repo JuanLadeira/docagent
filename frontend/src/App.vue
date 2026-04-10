@@ -28,6 +28,7 @@ const navItems = computed(() => {
     items.push({ name: 'Contatos', path: '/contatos', icon: '👤' })
     items.push({ name: 'Agentes', path: '/agentes', icon: '🤖' })
     items.push({ name: 'Servidores MCP', path: '/servidores-mcp', icon: '🔌' })
+    items.push({ name: 'Vagas', path: '/vagas', icon: '💼' })
   }
   items.push({ name: 'Configurações', path: '/configuracoes', icon: '⚙️' })
   return items

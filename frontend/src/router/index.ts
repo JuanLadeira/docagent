@@ -85,6 +85,24 @@ const router = createRouter({
       component: () => import('@/views/atendimento/ContatoDetalheView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/vagas',
+      name: 'vagas',
+      component: () => import('@/views/vagas/VagasView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/vagas/pipeline/:id',
+      name: 'pipeline-detalhe',
+      component: () => import('@/views/vagas/PipelineDetalheView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/vagas/candidaturas/:id',
+      name: 'candidatura-detalhe',
+      component: () => import('@/views/vagas/CandidaturaDetalheView.vue'),
+      meta: { requiresAuth: true },
+    },
 
     // Admin
     {
