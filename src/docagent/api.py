@@ -22,6 +22,8 @@ from docagent.whatsapp.router import router as whatsapp_router
 from docagent.telegram.router import router as telegram_router
 from docagent.atendimento.router import router as atendimento_router
 from docagent.mcp_server.router import router as mcp_router
+from docagent.assinatura.router import router as assinatura_router
+from docagent.vagas.router import router as vagas_router
 
 load_dotenv()
 
@@ -67,3 +69,9 @@ app.include_router(atendimento_router)
 
 # MCP — skills dinâmicas
 app.include_router(mcp_router)
+
+# Billing & Quotas
+app.include_router(assinatura_router)
+
+# Vagas — pipeline multi-agente de busca de emprego
+app.include_router(vagas_router)

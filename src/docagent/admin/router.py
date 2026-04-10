@@ -8,6 +8,10 @@ from docagent.auth.security import create_access_token, verify_password
 from docagent.agente.defaults import AGENTES_PADRAO
 from docagent.agente.schemas import AgenteCreate
 from docagent.agente.services import AgenteServiceDep
+from docagent.assinatura.schemas import AssinaturaPublic
+from docagent.assinatura.services import AssinaturaServiceDep
+from docagent.plano.schemas import PlanoCreate, PlanoPublic, PlanoUpdate
+from docagent.plano.services import PlanoServiceDep
 from docagent.system_config.services import SystemConfigServiceDep, LLM_MODE_KEY
 from docagent.tenant.schemas import TenantCreate, TenantPublic, TenantUpdate
 from docagent.tenant.services import TenantServiceDep
@@ -143,6 +147,63 @@ async def update_system_config(
     for key, value in data.items():
         await svc.set(key, str(value) if value is not None else None)
     return await svc.get_all()
+
+
+# ─── Planos ───────────────────────────────────────────────────────────────────
+
+@router.get("/planos", response_model=list[PlanoPublic])
+async def list_planos(_: CurrentAdmin, service: PlanoServiceDep):
+    return await service.get_all()
+
+
+@router.post("/planos", response_model=PlanoPublic, status_code=status.HTTP_201_CREATED)
+async def create_plano(_: CurrentAdmin, data: PlanoCreate, service: PlanoServiceDep):
+    return await service.create(data)
+
+
+@router.put("/planos/{plano_id}", response_model=PlanoPublic)
+async def update_plano(plano_id: int, data: PlanoUpdate, _: CurrentAdmin, service: PlanoServiceDep):
+    plano = await service.update(plano_id, data)
+    if not plano:
+        raise HTTPException(status_code=404, detail="Plano não encontrado")
+    return plano
+
+
+@router.delete("/planos/{plano_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_plano(plano_id: int, _: CurrentAdmin, service: PlanoServiceDep):
+    deleted = await service.delete(plano_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Plano não encontrado")
+
+
+# ─── Assinaturas (admin) ──────────────────────────────────────────────────────
+
+@router.get("/assinaturas", response_model=list[AssinaturaPublic])
+async def list_assinaturas(_: CurrentAdmin, service: AssinaturaServiceDep):
+    assinaturas = await service.get_all()
+    return [AssinaturaPublic.from_orm_with_plano(a) for a in assinaturas]
+
+
+@router.post("/tenants/{tenant_id}/assinatura", response_model=AssinaturaPublic, status_code=status.HTTP_201_CREATED)
+async def assign_assinatura(
+    tenant_id: int,
+    data: dict,
+    _: CurrentAdmin,
+    service: AssinaturaServiceDep,
+    tenant_service: TenantServiceDep,
+    plano_service: PlanoServiceDep,
+):
+    tenant = await tenant_service.get_by_id(tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado")
+    plano_id = data.get("plano_id")
+    if not plano_id:
+        raise HTTPException(status_code=422, detail="plano_id é obrigatório")
+    plano = await plano_service.get_by_id(plano_id)
+    if not plano:
+        raise HTTPException(status_code=404, detail="Plano não encontrado")
+    assinatura = await service.criar(tenant_id, plano_id)
+    return AssinaturaPublic.from_orm_with_plano(assinatura)
 
 
 # ─── Admin management (bootstrap) ────────────────────────────────────────────

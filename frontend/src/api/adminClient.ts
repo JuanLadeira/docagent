@@ -43,6 +43,32 @@ export interface SystemConfig {
   [key: string]: string | undefined
 }
 
+export interface Plano {
+  id: number
+  nome: string
+  descricao: string
+  limite_agentes: number
+  limite_documentos: number
+  limite_sessoes: number
+  ciclo_dias: number
+  preco_mensal: string
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface Assinatura {
+  id: number
+  tenant_id: number
+  tenant_nome: string | null
+  plano_id: number
+  plano_nome: string
+  ativo: boolean
+  data_inicio: string
+  data_proxima_renovacao: string
+  stripe_subscription_id: string | null
+}
+
 export interface AdminUser {
   id: number
   username: string
@@ -78,6 +104,19 @@ export const adminApi = {
   // Admins
   createAdmin: (data: { username: string; email: string; nome: string; password: string }) =>
     adminClient.post<AdminUser>('/admins', data),
+
+  // Planos
+  getPlanos: () => adminClient.get<Plano[]>('/planos'),
+  createPlano: (data: Omit<Plano, 'id' | 'created_at' | 'updated_at'>) =>
+    adminClient.post<Plano>('/planos', data),
+  updatePlano: (id: number, data: Partial<Omit<Plano, 'id' | 'created_at' | 'updated_at'>>) =>
+    adminClient.put<Plano>(`/planos/${id}`, data),
+  deletePlano: (id: number) => adminClient.delete(`/planos/${id}`),
+
+  // Assinaturas
+  getAssinaturas: () => adminClient.get<Assinatura[]>('/assinaturas'),
+  assignAssinatura: (tenantId: number, planoId: number) =>
+    adminClient.post<Assinatura>(`/tenants/${tenantId}/assinatura`, { plano_id: planoId }),
 
   // System Config
   getSystemConfig: () => adminClient.get<SystemConfig>('/system-config'),

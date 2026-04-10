@@ -15,8 +15,10 @@ class Plano(Base):
 
     nome: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     descricao: Mapped[str] = mapped_column(String(500), default="")
+    limite_agentes: Mapped[int] = mapped_column(default=1)
     limite_documentos: Mapped[int] = mapped_column(default=10)
     limite_sessoes: Mapped[int] = mapped_column(default=5)
+    ciclo_dias: Mapped[int] = mapped_column(default=30)
     preco_mensal: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"))
     ativo: Mapped[bool] = mapped_column(default=True)
 
