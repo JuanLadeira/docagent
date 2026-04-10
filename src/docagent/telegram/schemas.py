@@ -46,11 +46,27 @@ class TelegramChat(BaseModel):
     username: str | None = None
 
 
+class TelegramVoice(BaseModel):
+    file_id: str
+    duration: int
+    mime_type: str | None = None
+    file_size: int | None = None
+
+
+class TelegramAudio(BaseModel):
+    file_id: str
+    duration: int
+    mime_type: str | None = None
+    file_size: int | None = None
+
+
 class TelegramMessage(BaseModel):
     message_id: int
     chat: TelegramChat
     text: str | None = None
     from_: TelegramUser | None = Field(None, alias="from")
+    voice: TelegramVoice | None = None   # mensagem de voz gravada (ptt)
+    audio: TelegramAudio | None = None   # arquivo de áudio enviado
 
     model_config = {"populate_by_name": True}
 
