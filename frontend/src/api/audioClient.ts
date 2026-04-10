@@ -1,4 +1,3 @@
-import { api as baseApi } from '@/api/client'
 import axios from 'axios'
 
 export interface AudioConfig {
