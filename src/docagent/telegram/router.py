@@ -9,6 +9,7 @@ Fluxo de mensagens recebidas:
     → responde via sendMessage
 """
 import asyncio
+import logging
 from contextlib import AsyncExitStack
 
 from fastapi import APIRouter, HTTPException
@@ -45,6 +46,8 @@ router = APIRouter(
     prefix="/api/telegram",
     tags=["Telegram"],
 )
+
+_log = logging.getLogger("docagent.telegram")
 
 # Cache de agentes construídos — mesma estratégia do whatsapp/router.py
 _agent_cache: dict[tuple, BaseAgent] = {}
@@ -146,9 +149,109 @@ async def receber_update(bot_token: str, update: TelegramUpdate):
     return {"ok": True}
 
 
+async def _baixar_audio_telegram(bot_token: str, file_id: str) -> bytes:
+    """Baixa arquivo de áudio do Telegram via getFile + download."""
+    async with get_telegram_client(bot_token) as client:
+        r = await client.post("/getFile", json={"file_id": file_id})
+        r.raise_for_status()
+        file_path = r.json().get("result", {}).get("file_path", "")
+        if not file_path:
+            return b""
+
+    # Download direto do CDN do Telegram
+    import httpx
+    url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+    async with httpx.AsyncClient(timeout=30.0) as dl_client:
+        resp = await dl_client.get(url)
+        resp.raise_for_status()
+        return resp.content
+
+
+async def _executar_agente_telegram(
+    agente_obj: "Agente",
+    conteudo: str,
+    session_id: str,
+    tenant_id: int,
+) -> str:
+    """Executa o agente LangGraph para o caminho de áudio e retorna a resposta."""
+    sessions = get_session_manager()
+    state = sessions.get(session_id)
+    loop = asyncio.get_event_loop()
+
+    from docagent.agent.llm_factory import get_tenant_llm
+    async with AsyncSessionLocal() as llm_db:
+        tenant_llm = await get_tenant_llm(tenant_id, llm_db)
+    llm_provider = getattr(tenant_llm, "model_name", "") or getattr(tenant_llm, "model", "") or ""
+
+    if _tem_skills_mcp(agente_obj):
+        from docagent.mcp_server.models import McpServer
+        from docagent.mcp_server.services import load_mcp_tools_for_skills
+        from sqlalchemy.orm import selectinload
+        from sqlalchemy import select as _select
+        async with AsyncExitStack() as stack:
+            async with AsyncSessionLocal() as mcp_db:
+                result = await mcp_db.execute(
+                    _select(McpServer).options(selectinload(McpServer.tools))
+                )
+                servers = list(result.scalars().all())
+            mcp_skills = [n for n in agente_obj.skill_names if n.startswith("mcp:")]
+            mcp_tools = await load_mcp_tools_for_skills(mcp_skills, servers, stack)
+            agent = _build_agent_obj(agente_obj, extra_tools=mcp_tools, llm=tenant_llm)
+            final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
+    else:
+        agent = _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider)
+        final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
+
+    if agent.last_state:
+        sessions.update(session_id, agent.last_state)
+
+    answer = ""
+    if final_state and final_state.get("messages"):
+        from langchain_core.messages import AIMessage
+        last_msg = final_state["messages"][-1]
+        if isinstance(last_msg, AIMessage):
+            from docagent.utils import strip_emojis
+            answer = strip_emojis(last_msg.content or "")
+    return answer
+
+
+async def _enviar_resposta_telegram(
+    bot_token: str,
+    chat_id: int,
+    answer: str,
+    audio_config,
+) -> None:
+    """Envia resposta via Telegram: áudio (sendVoice), texto ou ambos, conforme config."""
+    from docagent.audio.models import ModoResposta
+    from docagent.audio.services import AudioService
+
+    if audio_config is not None and audio_config.tts_habilitado:
+        try:
+            audio_bytes = await AudioService.sintetizar(answer, audio_config)
+            async with get_telegram_client(bot_token) as client:
+                import httpx as _httpx
+                r = await client.post(
+                    "/sendVoice",
+                    files={"voice": ("voice.ogg", audio_bytes, "audio/ogg")},
+                    data={"chat_id": chat_id},
+                )
+                r.raise_for_status()
+            if audio_config.modo_resposta != ModoResposta.AUDIO_APENAS.value:
+                async with get_telegram_client(bot_token) as client:
+                    await client.post("/sendMessage", json={"chat_id": chat_id, "text": answer})
+        except Exception:
+            _log.exception("Erro ao sintetizar/enviar áudio Telegram — fallback texto")
+            async with get_telegram_client(bot_token) as client:
+                await client.post("/sendMessage", json={"chat_id": chat_id, "text": answer})
+    else:
+        async with get_telegram_client(bot_token) as client:
+            await client.post("/sendMessage", json={"chat_id": chat_id, "text": answer})
+
+
 async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
     msg = update.message
-    if not msg or not msg.text:
+    voice_or_audio = (msg.voice or msg.audio) if msg else None
+    if not msg or (not msg.text and not voice_or_audio):
         return
     if msg.chat.type != "private":
         return
@@ -156,8 +259,65 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
         return
 
     numero = str(msg.chat.id)
+    chat_id_int = msg.chat.id
     nome_contato = msg.from_.first_name if msg.from_ else None
-    conteudo = msg.text
+    conteudo = msg.text or ""
+
+    # ── Caminho de áudio: STT antes do fluxo principal ───────────────────────
+    audio_config = None
+    if voice_or_audio and not conteudo:
+        async with AsyncSessionLocal() as db_audio:
+            from sqlalchemy import select as _sel
+            inst_result = await db_audio.execute(
+                _sel(TelegramInstancia).where(TelegramInstancia.bot_token == bot_token)
+            )
+            inst_audio = inst_result.scalar_one_or_none()
+            if not inst_audio:
+                return
+            from docagent.audio.services import AudioService
+            audio_config = await AudioService.resolver_config(
+                inst_audio.agente_id, inst_audio.tenant_id, db_audio
+            )
+
+        if not audio_config.stt_habilitado:
+            return  # áudio ignorado quando STT desabilitado
+
+        try:
+            audio_bytes = await _baixar_audio_telegram(bot_token, voice_or_audio.file_id)
+            from docagent.audio.services import AudioService
+            conteudo = await AudioService.transcrever(audio_bytes, audio_config)
+        except Exception:
+            _log.exception("Erro ao transcrever áudio Telegram")
+            return
+
+        if not conteudo.strip():
+            return
+
+        # Executa agente e responde diretamente (modo áudio)
+        async with AsyncSessionLocal() as db:
+            from sqlalchemy import select as _sel
+            inst_result = await db.execute(
+                _sel(TelegramInstancia).where(TelegramInstancia.bot_token == bot_token)
+            )
+            instancia = inst_result.scalar_one_or_none()
+            if not instancia or not instancia.agente_id:
+                return
+
+            from docagent.agente.models import Agente as _Agente
+            ag_result = await db.execute(
+                _sel(_Agente).where(_Agente.id == instancia.agente_id, _Agente.ativo.is_(True))
+            )
+            agente_obj = ag_result.scalar_one_or_none()
+            if not agente_obj:
+                return
+
+        session_id = f"telegram:{instancia.tenant_id}:{numero}"
+        answer = await _executar_agente_telegram(agente_obj, conteudo, session_id, instancia.tenant_id)
+        if answer:
+            await _enviar_resposta_telegram(bot_token, chat_id_int, answer, audio_config)
+        return
+    # ─────────────────────────────────────────────────────────────────────────
+
     async with AsyncSessionLocal() as db:
         # Buscar instância pelo token
         result = await db.execute(

@@ -5,8 +5,9 @@ import { api } from '@/api/client'
 import WhatsappView from '@/views/whatsapp/WhatsappView.vue'
 import TelegramView from '@/views/telegram/TelegramView.vue'
 import McpServidoresView from '@/views/McpServidoresView.vue'
+import AudioConfigForm from '@/components/AudioConfigForm.vue'
 
-type SettingsTab = 'perfil' | 'whatsapp' | 'telegram' | 'mcp' | 'ia'
+type SettingsTab = 'perfil' | 'whatsapp' | 'telegram' | 'mcp' | 'ia' | 'audio'
 
 const auth = useAuthStore()
 const abaAtiva = ref<SettingsTab>('perfil')
@@ -14,6 +15,7 @@ const abaAtiva = ref<SettingsTab>('perfil')
 const tabs: { key: SettingsTab; label: string; icon: string; ownerOnly: boolean }[] = [
   { key: 'perfil', label: 'Perfil', icon: '👤', ownerOnly: false },
   { key: 'ia', label: 'IA', icon: '🤖', ownerOnly: true },
+  { key: 'audio', label: 'Áudio', icon: '🎙️', ownerOnly: true },
   { key: 'whatsapp', label: 'WhatsApp', icon: '📱', ownerOnly: true },
   { key: 'telegram', label: 'Telegram', icon: '✈️', ownerOnly: true },
   { key: 'mcp', label: 'Servidores MCP', icon: '🔌', ownerOnly: true },
@@ -273,6 +275,15 @@ async function changePassword() {
           </button>
         </form>
       </div>
+    </div>
+
+    <!-- Aba: Áudio -->
+    <div v-show="abaAtiva === 'audio'" class="p-8 max-w-lg">
+      <p class="text-slate-500 dark:text-slate-400 text-sm mb-5">
+        Configuração padrão de STT/TTS para todos os agentes do tenant.
+        Pode ser sobrescrita individualmente em cada agente.
+      </p>
+      <AudioConfigForm />
     </div>
 
     <!-- Aba: WhatsApp -->

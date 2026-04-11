@@ -1,15 +1,15 @@
-# DocAgent
+# DocAgent / z3ndocs
 
 Plataforma SaaS de agentes de IA para análise de documentos PDF e atendimento multicanal (WhatsApp e Telegram).
 Construída em fases progressivas — cada fase adiciona um conceito fundamental sobre agentes, APIs e SaaS.
 
-Tudo roda localmente com [Ollama](https://ollama.com). Sem APIs pagas.
+Tudo roda localmente com [Ollama](https://ollama.com). Sem APIs pagas obrigatórias.
 
 ---
 
 ## Visão Geral
 
-O DocAgent é uma plataforma multi-tenant onde usuários podem conversar com agentes de IA configuráveis, cada um com um conjunto de skills (ferramentas) e um papel (system prompt) definidos pelo operador. Os agentes podem buscar em documentos PDF indexados, pesquisar na web, e atender clientes via WhatsApp e Telegram com handoff humano.
+O z3ndocs é uma plataforma multi-tenant onde operadores podem criar agentes de IA configuráveis, cada um com um conjunto de skills (ferramentas), documentos próprios e um papel (system prompt) definidos pelo operador. Os agentes podem buscar em documentos PDF indexados, pesquisar na web, atender clientes via WhatsApp e Telegram com handoff humano, e responder por voz (STT + TTS).
 
 ---
 
@@ -29,6 +29,8 @@ O DocAgent é uma plataforma multi-tenant onde usuários podem conversar com age
 | UI alternativa | Streamlit |
 | Canal WhatsApp | Evolution API v2 (self-hosted) |
 | Canal Telegram | Telegram Bot API (direto, sem intermediário) |
+| STT | faster-whisper (local) + OpenAI Whisper (API) |
+| TTS | Piper (local) + OpenAI TTS + ElevenLabs |
 | Proxy reverso (prod) | Traefik v3 + Let's Encrypt ACME |
 | Infraestrutura | Docker Compose + uv |
 | Observabilidade | LangSmith (opcional) |
@@ -184,6 +186,56 @@ Segundo canal de atendimento, UI reorganizada e stack de produção completo.
 - `docker-compose.prod.local.yml`: versão sem SSL para testes locais
 - `compose/entrypoint.prod.sh`: `alembic upgrade head` em vez de `create_all`
 
+### Fase 17 — Planos, Assinaturas & Billing `[concluída]`
+Sistema de monetização com planos de uso, quotas por tenant e painel de faturamento.
+
+- Modelo `Plano` com limites: `limite_agentes`, `limite_documentos`, `limite_sessoes`, `ciclo_dias`
+- Modelo `Assinatura` com `AssinaturaService`: `get_by_tenant`, `criar`, `checar_quota`, `uso_atual`
+- Dependency `require_quota` — bloqueia endpoints quando quota excedida
+- CRUD de planos via painel admin (`/api/admin/planos`)
+- Endpoints tenant: `GET /api/assinatura/me`, `GET /api/assinatura/me/uso`
+- Frontend: `AdminAssinaturasView`, visualização de uso de quota
+- Suite TDD completa (service + router + quota)
+
+### Fase 17b — Pipeline Multi-Agente de Vagas `[concluída]`
+Esteira de 4 agentes LangGraph para análise de currículo e busca de vagas.
+
+- Pipeline assíncrono: `cv_analyzer → job_searcher → personalizer → registrar`
+- `cv_analyzer`: LLM extrai perfil estruturado do currículo em PDF
+- `job_searcher`: busca vagas em DuckDuckGo, Gupy, LinkedIn e Indeed
+- `personalizer`: gera resumo e carta de apresentação personalizada por vaga
+- Progresso via SSE (mesmo padrão do módulo de atendimento)
+- Frontend: seção `/vagas` com upload de PDF e acompanhamento em tempo real
+
+### Fase 18 — Áudio: STT + TTS `[concluída]`
+Pipeline de voz completo integrado ao WhatsApp e Telegram.
+
+**Infraestrutura de áudio:**
+- Módulo `audio/` com `AudioConfig` por tenant + por agente (cascata: agente → tenant → defaults)
+- CRUD de config via `GET/PUT /api/audio-config/default` e `GET/PUT/DELETE /api/agentes/{id}/audio-config`
+- Frontend: `AudioConfigForm.vue` + tabs de Áudio em Configurações e no formulário do agente
+
+**STT (Speech-to-Text):**
+- `FasterWhisperSTT` — transcrição local via faster-whisper, modelo carregado como singleton, roda em thread pool
+- `OpenAIWhisperSTT` — fallback via API OpenAI
+
+**TTS (Text-to-Speech):**
+- `PiperTTS` — síntese local via subprocesso `piper` + `ffmpeg` (WAV raw → OGG/OPUS)
+- `OpenAITTS` — OpenAI Text-to-Speech API
+- `ElevenLabsTTS` — ElevenLabs API
+
+**Integração nos canais:**
+- WhatsApp: mensagens de voz transcritas automaticamente pelo STT antes de chegar ao agente
+- Telegram: suporte a `voice` e `audio`; resposta em `audio_apenas`, `texto_apenas` ou `audio_e_texto`
+
+**Dockerfile (Sprint 8):**
+- `ffmpeg` + `libgomp1` (OpenMP para faster-whisper) + `wget`
+- Pré-download do modelo Whisper `base` e Piper `pt_BR-faber-medium` no build da imagem
+
+**Testes:**
+- 42 testes unitários com mocks (rápidos, sem dependências externas)
+- 12 testes de integração `@pytest.mark.integration` com binários reais (rodar no container)
+
 ---
 
 ## Requisitos
@@ -229,13 +281,8 @@ Para validar o docker-compose de produção na sua máquina antes de subir em se
 cp .env.prod.example .env.prod.local
 # edite .env.prod.local com suas senhas de teste
 
-# primeira vez — faz o build das imagens
 docker compose -f docker-compose.prod.local.yml --env-file .env.prod.local build
-
-# sobe o stack
 docker compose -f docker-compose.prod.local.yml --env-file .env.prod.local up -d
-
-# acompanhar logs
 docker compose -f docker-compose.prod.local.yml --env-file .env.prod.local logs -f api
 ```
 
@@ -315,11 +362,15 @@ cd frontend && npm install && npm run dev
 ## Testes
 
 ```bash
-uv run pytest tests/ -v                           # todos os testes
-uv run pytest tests/test_atendimento/ -v          # atendimentos
-uv run pytest tests/test_telegram/ -v             # Telegram
-uv run pytest tests/test_fase11/ -v               # MCP
-uv run pytest tests/test_fase8/ -v                # auth + tenant
+uv run pytest tests/ -v                                    # todos os testes (unitários)
+uv run pytest tests/test_atendimento/ -v                   # atendimentos
+uv run pytest tests/test_telegram/ -v                      # Telegram
+uv run pytest tests/test_fase11/ -v                        # MCP
+uv run pytest tests/test_fase8/ -v                         # auth + tenant
+uv run pytest tests/test_audio/ -v                         # áudio (unitários + skip de integração)
+
+# Testes de integração de áudio — requerem piper + ffmpeg (rodar dentro do container)
+docker compose exec api uv run pytest tests/test_audio/test_pipeline_integration.py -v
 ```
 
 ---
@@ -351,6 +402,8 @@ Copie de `.env.prod.example` e preencha. As variáveis principais:
 | `POSTGRES_EVOLUTION_PASSWORD` | Senha do banco Evolution API |
 | `EVOLUTION_API_KEY` | Chave da Evolution API |
 | `OLLAMA_BASE_URL` | URL do Ollama (ex: `http://host.docker.internal:11434`) |
+| `PIPER_MODELS_DIR` | Diretório dos modelos Piper (padrão: `/app/models/piper`) |
+| `HF_HOME` | Cache do Hugging Face / Whisper (padrão: `/app/models/huggingface`) |
 
 ---
 
@@ -359,19 +412,22 @@ Copie de `.env.prod.example` e preencha. As variáveis principais:
 ```
 docagent/
 ├── compose/
-│   ├── Dockerfile              # imagem Python (api + streamlit)
-│   ├── entrypoint.sh           # dev: create_all + seeds
-│   └── entrypoint.prod.sh      # prod: alembic upgrade head + seeds
+│   ├── prod/api/
+│   │   ├── Dockerfile          # imagem prod (ffmpeg + Whisper + Piper pré-instalados)
+│   │   └── entrypoint.sh       # prod: alembic upgrade head + seeds
+│   ├── Dockerfile              # imagem dev (api + streamlit)
+│   └── entrypoint.sh           # dev: create_all + seeds
 ├── frontend/
 │   ├── src/
 │   │   ├── api/                # Axios client + tipos TypeScript
 │   │   ├── stores/             # Pinia (auth)
 │   │   ├── router/             # Vue Router com guards
-│   │   └── views/              # páginas (auth, chat, agentes, atendimento, admin)
+│   │   └── views/              # páginas (auth, chat, agentes, atendimento, admin, vagas)
 │   │       ├── atendimento/    # AtendimentoView (prop canal), ContatoView
-│   │       ├── agentes/        # AgentesView, AgenteFormView
-│   │       ├── user/           # SettingsView (abas: perfil/whatsapp/telegram/mcp)
-│   │       └── telegram/       # TelegramView
+│   │       ├── agentes/        # AgentesView, AgenteFormView (com aba Áudio)
+│   │       ├── user/           # SettingsView (abas: perfil/whatsapp/telegram/mcp/áudio)
+│   │       ├── telegram/       # TelegramView
+│   │       └── vagas/          # VagasView (pipeline multi-agente)
 │   ├── Dockerfile              # dev (Vite)
 │   ├── Dockerfile.prod         # prod (build + nginx)
 │   └── nginx.conf              # SPA routing + proxy para API
@@ -384,6 +440,12 @@ docagent/
 │   ├── auth/                   # JWT, security, router
 │   ├── usuario/                # model, service, router
 │   ├── tenant/                 # model, service, router
+│   ├── plano/                  # model, CRUD admin
+│   ├── assinatura/             # model, service, router, require_quota dependency
+│   ├── vagas/                  # pipeline multi-agente (cv_analyzer → job_searcher → personalizer)
+│   ├── audio/                  # STT + TTS — models, schemas, services, router, providers
+│   │   ├── stt/                # FasterWhisperSTT, OpenAIWhisperSTT
+│   │   └── tts/                # PiperTTS, OpenAITTS, ElevenLabsTTS
 │   ├── mcp_server/             # registro MCP, descoberta de tools
 │   ├── whatsapp/               # instâncias WA, webhook, Evolution API client
 │   │   └── atendimento_service.py  # WhatsappAtendimentoService
@@ -392,8 +454,13 @@ docagent/
 │   └── atendimento/            # AtendimentoService (base), models, router, SSE
 ├── tests/
 │   ├── test_atendimento/       # services, router, SSE, webhook WA
-│   └── test_telegram/          # models, services, router, webhook TG
+│   ├── test_telegram/          # models, services, router, webhook TG
+│   ├── test_fase17/            # AssinaturaService, quota, billing router
+│   └── test_audio/             # 42 testes unitários + 12 de integração (piper/whisper)
 ├── alembic/                    # migrações de banco
+├── docs/
+│   ├── raw/                    # specs imutáveis por fase
+│   └── wiki/                   # LLM Wiki — estado atual, log, gotchas, decisões
 ├── docker-compose.yml              # desenvolvimento
 ├── docker-compose.prod.yml         # produção (Traefik + SSL — VPS)
 ├── docker-compose.prod.local.yml   # teste local do stack prod (sem SSL)
@@ -414,6 +481,10 @@ docagent/
 | POST | `/chat` | Chat SSE com agente |
 | GET | `/api/agentes/` | CRUD de agentes |
 | POST | `/api/agentes/{id}/documentos` | Upload PDF vinculado ao agente |
+| GET | `/api/agentes/{id}/audio-config` | Config de áudio do agente |
+| PUT | `/api/agentes/{id}/audio-config` | Atualizar config de áudio do agente |
+| GET | `/api/audio-config/default` | Config de áudio padrão do tenant |
+| PUT | `/api/audio-config/default` | Atualizar config de áudio padrão |
 | GET | `/api/mcp-servidores` | CRUD de servidores MCP |
 | GET | `/api/whatsapp/instancias` | CRUD de instâncias WhatsApp |
 | POST | `/api/whatsapp/webhook` | Receptor de eventos da Evolution API |
@@ -422,11 +493,14 @@ docagent/
 | POST | `/api/telegram/webhook/{token}` | Receptor de updates do Telegram |
 | GET | `/api/atendimentos?canal=WHATSAPP\|TELEGRAM` | Lista atendimentos (filtro por canal) |
 | GET | `/api/atendimentos/eventos` | SSE — atualizações de lista em tempo real |
-| POST | `/api/atendimentos` | Inicia conversa WhatsApp manualmente |
 | POST | `/api/atendimentos/{id}/assumir` | Operador assume o atendimento |
 | POST | `/api/atendimentos/{id}/devolver` | Devolve ao agente |
 | POST | `/api/atendimentos/{id}/encerrar` | Encerra atendimento |
 | GET | `/api/atendimentos/contatos` | CRUD de contatos |
+| GET | `/api/assinatura/me` | Assinatura e plano do tenant |
+| GET | `/api/assinatura/me/uso` | Uso atual vs limites do plano |
+| POST | `/api/vagas/pipeline` | Inicia pipeline de análise de currículo |
+| GET | `/api/vagas/pipeline/{id}/eventos` | SSE — progresso do pipeline de vagas |
 | GET | `/health` | Health check |
 
 Documentação interativa disponível em `http://localhost:8000/docs`.
