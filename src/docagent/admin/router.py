@@ -6,9 +6,13 @@ from docagent.audit.services import AuditService
 from docagent.rate_limit import limiter
 
 from docagent.admin.current_admin import CurrentAdmin
-from docagent.admin.schemas import AdminCreate, AdminPublic, Token
+from docagent.admin.schemas import (
+    AdminCreate, AdminPublic, LoginResponse, Token,
+    TotpConfirmRequest, TotpSetupResponse, TotpStatusResponse, TotpVerifyRequest,
+)
 from docagent.admin.services import AdminServiceDep
-from docagent.auth.security import create_access_token, verify_password
+from docagent.auth.security import create_access_token, create_temp_token, verify_password, verify_temp_token
+from docagent.auth.totp import gerar_secret, gerar_qr_uri, verificar_codigo
 from docagent.agente.defaults import AGENTES_PADRAO
 from docagent.agente.schemas import AgenteCreate
 from docagent.agente.services import AgenteServiceDep
@@ -29,7 +33,7 @@ router = APIRouter(
 )
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=LoginResponse)
 @limiter.limit("5/minute")
 async def admin_login(
     request: Request,
@@ -37,6 +41,12 @@ async def admin_login(
     db: AsyncDBSession,
     form_data: OAuth2PasswordRequestForm = Depends(),
 ):
+    """
+    Passo 1 do login.
+    - Se 2FA desativado: retorna JWT definitivo (comportamento anterior).
+    - Se 2FA ativado: retorna requires_2fa=True + temp_token (válido 5 min).
+      O cliente deve fazer POST /api/admin/login/2fa com temp_token + código TOTP.
+    """
     admin = await service.get_by_username(form_data.username)
     if not admin or not verify_password(form_data.password, admin.password):
         raise HTTPException(
@@ -46,6 +56,10 @@ async def admin_login(
         )
     if not admin.ativo:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin inativo")
+
+    if admin.totp_habilitado:
+        temp_token = create_temp_token(admin.id)
+        return LoginResponse(requires_2fa=True, temp_token=temp_token)
 
     access_token = create_access_token(data={"sub": f"admin:{admin.username}"})
 
@@ -58,7 +72,106 @@ async def admin_login(
         ip_origem=request.client.host if request.client else None,
     )
 
-    return Token(access_token=access_token, token_type="bearer")
+    return LoginResponse(access_token=access_token)
+
+
+@router.post("/login/2fa", response_model=LoginResponse)
+@limiter.limit("5/minute")
+async def admin_login_2fa(
+    request: Request,
+    data: TotpVerifyRequest,
+    service: AdminServiceDep,
+    db: AsyncDBSession,
+):
+    """Passo 2: valida código TOTP e retorna JWT definitivo."""
+    admin_id = verify_temp_token(data.temp_token)
+    if admin_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token temporário inválido ou expirado")
+
+    admin = await service.get_by_id(admin_id)
+    if not admin or not admin.totp_habilitado or not admin.totp_secret:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="2FA não configurado")
+
+    if not verificar_codigo(admin.totp_secret, data.codigo):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código TOTP inválido")
+
+    access_token = create_access_token(data={"sub": f"admin:{admin.username}"})
+
+    await AuditService.registrar(
+        db,
+        actor_tipo=ActorTipo.ADMIN,
+        actor_id=admin.id,
+        actor_username=admin.username,
+        acao="login_admin_2fa",
+        ip_origem=request.client.host if request.client else None,
+    )
+
+    return LoginResponse(access_token=access_token)
+
+
+# ─── 2FA Setup ────────────────────────────────────────────────────────────────
+
+@router.get("/2fa/setup", response_model=TotpSetupResponse)
+async def setup_2fa(current_admin: CurrentAdmin, service: AdminServiceDep):
+    """
+    Gera um novo secret TOTP e retorna a URI para o frontend renderizar como QR code.
+    O secret é salvo no banco mas 2FA só é ativado após o admin confirmar
+    com POST /api/admin/2fa/confirmar.
+    """
+    secret = gerar_secret()
+    qr_uri = gerar_qr_uri(secret, current_admin.username)
+
+    admin = await service.get_by_id(current_admin.id)
+    admin.totp_secret = secret
+    await service.session.flush()
+
+    return TotpSetupResponse(qr_uri=qr_uri, secret=secret)
+
+
+@router.post("/2fa/confirmar", response_model=TotpStatusResponse)
+async def confirmar_2fa(
+    data: TotpConfirmRequest,
+    current_admin: CurrentAdmin,
+    service: AdminServiceDep,
+):
+    """
+    Confirma que o admin escaneou o QR code e o app está gerando códigos corretos.
+    Ativa o 2FA após validação do primeiro código.
+    """
+    admin = await service.get_by_id(current_admin.id)
+    if not admin.totp_secret:
+        raise HTTPException(status_code=400, detail="Execute GET /api/admin/2fa/setup primeiro")
+
+    if not verificar_codigo(admin.totp_secret, data.codigo):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código TOTP inválido")
+
+    admin.totp_habilitado = True
+    await service.session.flush()
+
+    return TotpStatusResponse(totp_habilitado=True)
+
+
+@router.delete("/2fa/desativar", response_model=TotpStatusResponse)
+async def desativar_2fa(
+    current_admin: CurrentAdmin,
+    service: AdminServiceDep,
+    db: AsyncDBSession,
+):
+    """Desativa 2FA e apaga o secret do banco."""
+    admin = await service.get_by_id(current_admin.id)
+    admin.totp_secret = None
+    admin.totp_habilitado = False
+    await service.session.flush()
+
+    await AuditService.registrar(
+        db,
+        actor_tipo=ActorTipo.ADMIN,
+        actor_id=current_admin.id,
+        actor_username=current_admin.username,
+        acao="desativar_2fa",
+    )
+
+    return TotpStatusResponse(totp_habilitado=False)
 
 
 @router.get("/me", response_model=AdminPublic)

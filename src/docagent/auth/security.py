@@ -31,6 +31,28 @@ def create_password_reset_token(email: str) -> str:
     return encode(data, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def create_temp_token(admin_id: int) -> str:
+    """Token temporário para o segundo passo do login 2FA. Expira em 5 minutos."""
+    expire = datetime.now(tz=ZoneInfo("UTC")) + timedelta(minutes=5)
+    data = {"sub": f"temp_2fa:{admin_id}", "type": "temp_2fa", "exp": expire}
+    return encode(data, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def verify_temp_token(token: str) -> int | None:
+    """Valida o temp_token e retorna o admin_id, ou None se inválido/expirado."""
+    from jwt import DecodeError, ExpiredSignatureError, decode
+    try:
+        payload = decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "temp_2fa":
+            return None
+        sub = payload.get("sub", "")
+        if not sub.startswith("temp_2fa:"):
+            return None
+        return int(sub.split(":")[1])
+    except (DecodeError, ExpiredSignatureError, ValueError):
+        return None
+
+
 def verify_password_reset_token(token: str) -> str | None:
     from jwt import DecodeError, ExpiredSignatureError, decode
     try:
