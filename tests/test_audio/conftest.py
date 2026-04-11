@@ -1,8 +1,21 @@
 """
 Fixtures compartilhadas para os testes de áudio.
 """
+import shutil
 import pytest
 import pytest_asyncio
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-skip testes @integration quando piper/ffmpeg não estão disponíveis."""
+    binarios_presentes = shutil.which("piper") and shutil.which("ffmpeg")
+    if not binarios_presentes:
+        skip = pytest.mark.skip(
+            reason="binários 'piper' e/ou 'ffmpeg' ausentes — rode dentro do container Docker"
+        )
+        for item in items:
+            if item.get_closest_marker("integration"):
+                item.add_marker(skip)
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 

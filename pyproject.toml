@@ -57,6 +57,9 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
+markers = [
+    "integration: testes de integração com binários reais (piper, ffmpeg, faster-whisper) — rodar dentro do container",
+]
 
 [tool.taskipy.tasks]
 dev        = "docker compose -f docker-compose.yml --env-file .env up"
