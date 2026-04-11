@@ -28,3 +28,11 @@ class Settings:
     # Chave Fernet para criptografar elevenlabs_api_key (base64url de 32 bytes).
     # Se vazia, salva plaintext com aviso de log.
     AUDIO_FERNET_KEY: str = os.getenv("AUDIO_FERNET_KEY", "")
+
+    # HuggingFace Local / TurboQuant (provider hf_local)
+    # Requer: uv sync --extra hf  (instala torch, transformers, turboquant-torch)
+    # ATENÇÃO: usar --workers 1 no uvicorn para não duplicar o modelo na VRAM
+    LLM_HF_MODEL: str = os.getenv("LLM_HF_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+    TURBOQUANT_ENABLED: bool = os.getenv("TURBOQUANT_ENABLED", "true").lower() == "true"
+    TURBOQUANT_BITS: int = int(os.getenv("TURBOQUANT_BITS", "3"))
+    TURBOQUANT_DEVICE: str = os.getenv("TURBOQUANT_DEVICE", "cuda")
