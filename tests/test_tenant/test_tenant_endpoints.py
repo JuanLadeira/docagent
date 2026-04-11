@@ -1,3 +1,9 @@
+"""
+Testes dos endpoints de tenant após correção de segurança.
+
+Os endpoints públicos de CRUD (/api/tenants/, /api/tenants/{id}) foram removidos.
+O CRUD agora está em /api/admin/tenants/* com autenticação de admin.
+"""
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -39,76 +45,31 @@ async def client(db_session: AsyncSession):
 @pytest.mark.asyncio
 @pytest.mark.tenant
 class TestTenantEndpoints:
-    async def test_create_tenant(self, client: AsyncClient):
-        response = await client.post(
-            "/api/tenants/",
-            json={"nome": "Casa Nova", "descricao": "Descricao da casa"},
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert data["nome"] == "Casa Nova"
-        assert data["descricao"] == "Descricao da casa"
-        assert "id" in data
-        assert "created_at" in data
+    """Verifica que os endpoints públicos foram removidos (segurança)."""
 
-    async def test_get_tenant(self, client: AsyncClient):
-        # Create a tenant first
-        create_response = await client.post(
-            "/api/tenants/",
-            json={"nome": "Casa Teste", "descricao": "Para buscar"},
-        )
-        tenant_id = create_response.json()["id"]
+    async def test_create_tenant_publico_removido(self, client: AsyncClient):
+        r = await client.post("/api/tenants/", json={"nome": "Casa Nova"})
+        assert r.status_code in (404, 405)
 
-        # Get the tenant
-        response = await client.get(f"/api/tenants/{tenant_id}")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["id"] == tenant_id
-        assert data["nome"] == "Casa Teste"
+    async def test_get_tenant_publico_removido(self, client: AsyncClient):
+        r = await client.get("/api/tenants/1")
+        assert r.status_code in (404, 405)
 
-    async def test_get_tenant_not_found(self, client: AsyncClient):
-        response = await client.get("/api/tenants/99999")
-        assert response.status_code == 404
+    async def test_list_tenants_publico_removido(self, client: AsyncClient):
+        r = await client.get("/api/tenants/")
+        assert r.status_code in (404, 405)
 
-    async def test_list_tenants(self, client: AsyncClient):
-        # Create multiple tenants
-        await client.post("/api/tenants/", json={"nome": "Casa 1"})
-        await client.post("/api/tenants/", json={"nome": "Casa 2"})
+    async def test_update_tenant_publico_removido(self, client: AsyncClient):
+        r = await client.put("/api/tenants/1", json={"nome": "Novo"})
+        assert r.status_code in (404, 405)
 
-        response = await client.get("/api/tenants/")
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) >= 2
+    async def test_delete_tenant_publico_removido(self, client: AsyncClient):
+        r = await client.delete("/api/tenants/1")
+        assert r.status_code in (404, 405)
 
-    async def test_update_tenant(self, client: AsyncClient):
-        # Create a tenant
-        create_response = await client.post(
-            "/api/tenants/",
-            json={"nome": "Nome Original"},
-        )
-        tenant_id = create_response.json()["id"]
+    async def test_llm_config_requer_auth(self, client: AsyncClient):
+        r = await client.get("/api/tenants/me/llm-config")
+        assert r.status_code == 401
 
-        # Update it
-        response = await client.put(
-            f"/api/tenants/{tenant_id}",
-            json={"nome": "Nome Atualizado"},
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["nome"] == "Nome Atualizado"
-
-    async def test_delete_tenant(self, client: AsyncClient):
-        # Create a tenant
-        create_response = await client.post(
-            "/api/tenants/",
-            json={"nome": "Para Deletar"},
-        )
-        tenant_id = create_response.json()["id"]
-
-        # Delete it
-        response = await client.delete(f"/api/tenants/{tenant_id}")
-        assert response.status_code == 204
-
-        # Verify it's gone
-        get_response = await client.get(f"/api/tenants/{tenant_id}")
-        assert get_response.status_code == 404
+        r = await client.put("/api/tenants/me/llm-config", json={})
+        assert r.status_code == 401

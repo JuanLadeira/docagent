@@ -146,10 +146,14 @@ async def stream_media(mensagem_id: int, current_user: CurrentUser, session: Asy
 
     if ref.startswith("local:"):
         import os
+        from pathlib import Path
         filename = ref.split(":", 1)[1]
-        audio_dir = os.path.join(os.getcwd(), "data", "audio")
-        filepath = os.path.join(audio_dir, filename)
-        if not os.path.isfile(filepath):
+        audio_dir = Path(os.getcwd()) / "data" / "audio"
+        # Resolve symlinks e normaliza ".." para prevenir path traversal
+        filepath = (audio_dir / filename).resolve()
+        if not filepath.is_relative_to(audio_dir.resolve()):
+            raise HTTPException(status_code=400, detail="Caminho de arquivo inválido")
+        if not filepath.is_file():
             raise HTTPException(status_code=404, detail="Arquivo de áudio não encontrado")
         async def file_stream():
             with open(filepath, "rb") as f:
@@ -158,7 +162,7 @@ async def stream_media(mensagem_id: int, current_user: CurrentUser, session: Asy
         return StreamingResponse(
             file_stream(),
             media_type="audio/ogg",
-            headers={"Content-Length": str(os.path.getsize(filepath))},
+            headers={"Content-Length": str(filepath.stat().st_size)},
         )
 
     raise HTTPException(status_code=400, detail="media_ref com formato desconhecido")
