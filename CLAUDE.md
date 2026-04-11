@@ -2,6 +2,9 @@
 
 Plataforma SaaS multi-tenant de agentes de IA para análise de documentos e integração com WhatsApp.
 
+> **Wiki do projeto:** [`docs/wiki/`](docs/wiki/index.md) — estado atual, módulos, decisões arquiteturais, gotchas acumulados.
+> **Specs de planejamento:** [`docs/raw/`](docs/raw/) — design docs por fase (imutáveis).
+
 ---
 
 ## Como Rodar
