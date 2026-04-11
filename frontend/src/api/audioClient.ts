@@ -4,6 +4,7 @@ export interface AudioConfig {
   id: number
   tenant_id: number
   agente_id: number | null
+  is_agent_override: boolean
   stt_habilitado: boolean
   stt_provider: 'faster_whisper' | 'openai'
   stt_modelo: string
@@ -16,7 +17,7 @@ export interface AudioConfig {
   modo_resposta: 'audio_apenas' | 'texto_apenas' | 'audio_e_texto'
 }
 
-export type AudioConfigUpdate = Omit<AudioConfig, 'id' | 'tenant_id' | 'agente_id'>
+export type AudioConfigUpdate = Omit<AudioConfig, 'id' | 'tenant_id' | 'agente_id' | 'is_agent_override'>
 
 export const audioApi = {
   async getDefault(): Promise<AudioConfig> {

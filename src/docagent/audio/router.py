@@ -150,10 +150,12 @@ def _aplicar_dados(cfg: AudioConfig, data: AudioConfigCreate | AudioConfigUpdate
 
 def _to_public(cfg, tenant_id: int, agente_id: int | None) -> AudioConfigPublic:
     """Converte AudioConfig ou SimpleNamespace para AudioConfigPublic."""
+    cfg_agente_id = getattr(cfg, "agente_id", agente_id)
     return AudioConfigPublic(
         id=getattr(cfg, "id", None) or 0,
         tenant_id=getattr(cfg, "tenant_id", tenant_id),
-        agente_id=getattr(cfg, "agente_id", agente_id),
+        agente_id=cfg_agente_id,
+        is_agent_override=agente_id is not None and cfg_agente_id == agente_id,
         stt_habilitado=cfg.stt_habilitado,
         stt_provider=cfg.stt_provider,
         stt_modelo=cfg.stt_modelo,

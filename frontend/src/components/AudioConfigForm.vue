@@ -51,25 +51,13 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    let cfg
-    if (props.agenteId) {
-      try {
-        cfg = await audioApi.getAgente(props.agenteId)
-        isAgentOverride.value = true
-      } catch (e: unknown) {
-        const status = (e as { response?: { status?: number } })?.response?.status
-        if (status === 404) {
-          // No override yet — show tenant defaults as read-only base
-          cfg = await audioApi.getDefault()
-          isAgentOverride.value = false
-        } else {
-          throw e
-        }
-      }
-    } else {
-      cfg = await audioApi.getDefault()
-      isAgentOverride.value = false
-    }
+    const cfg = props.agenteId
+      ? await audioApi.getAgente(props.agenteId)
+      : await audioApi.getDefault()
+
+    // is_agent_override vem do backend: true só quando o agente tem config própria
+    isAgentOverride.value = cfg.is_agent_override
+
     form.value = {
       stt_habilitado: cfg.stt_habilitado,
       stt_provider: cfg.stt_provider,
