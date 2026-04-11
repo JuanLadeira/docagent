@@ -21,7 +21,7 @@ O z3ndocs é uma plataforma multi-tenant onde operadores podem criar agentes de 
 | Embeddings | `nomic-embed-text` via Ollama |
 | Orquestração de agentes | LangGraph |
 | RAG | LangChain + ChromaDB |
-| Memória de conversa | Summarize node customizado |
+| Memória de conversa | Summarize node customizado + histórico persistido no banco |
 | API | FastAPI + streaming SSE |
 | Banco de dados | SQLAlchemy async (SQLite dev / PostgreSQL prod) |
 | Auth | JWT (PyJWT) + argon2 (pwdlib) |
@@ -207,6 +207,17 @@ Esteira de 4 agentes LangGraph para análise de currículo e busca de vagas.
 - Progresso via SSE (mesmo padrão do módulo de atendimento)
 - Frontend: seção `/vagas` com upload de PDF e acompanhamento em tempo real
 
+### Fase 18b — Provider `hf_local`: TurboQuant KV Cache Compression `[concluída]`
+LLM local via HuggingFace Transformers com compressão de KV cache para contextos longos em GPUs com pouca VRAM.
+
+- Provider `hf_local` no `llm_factory.py` — carrega modelos Qwen diretamente via Transformers
+- `llm_hf.py`: singleton por `(model, device, bit_width)`, OOM retry em sequência descendente `[4→3→2]` bits
+- Integração com **TurboQuant** (`turboquant-torch`) — compressão Walsh-Hadamard + Lloyd-Max (~5-6x menos VRAM)
+- Graceful degradation: sem `torch` instalado o provider levanta `RuntimeError` com instrução de instalação
+- Optional-deps `hf`: `uv sync --extra hf` instala torch, transformers, accelerate, langchain-huggingface
+- `tools/benchmark.py`: script standalone que compara FP16 vs TQ-Nbit (latência, throughput, VRAM)
+- 18 testes TDD com mocks de `sys.modules` (nenhuma dependência GPU no CI)
+
 ### Fase 18 — Áudio: STT + TTS `[concluída]`
 Pipeline de voz completo integrado ao WhatsApp e Telegram.
 
@@ -235,6 +246,18 @@ Pipeline de voz completo integrado ao WhatsApp e Telegram.
 **Testes:**
 - 42 testes unitários com mocks (rápidos, sem dependências externas)
 - 12 testes de integração `@pytest.mark.integration` com binários reais (rodar no container)
+
+### Fase 19 — Persistência de Histórico de Chat `[concluída]`
+Histórico de conversas persistido no banco de dados, sidebar de conversas no frontend e retomada de conversa entre sessões.
+
+- Tabelas `conversa` + `mensagem_conversa` com migration Alembic
+- `ConversaService`: criar, listar paginado, salvar mensagens, gerar título automático via LLM em background, arquivar/restaurar (soft delete)
+- `POST /chat` aceita `conversa_id` opcional — retoma conversa existente carregando histórico do banco
+- Evento SSE `meta` retorna `conversa_id` ao frontend no início de cada stream
+- Endpoints REST: `GET/DELETE /api/chat/conversas`, `GET /api/chat/conversas/{id}`, `POST /api/chat/conversas/{id}/restaurar`
+- **Sidebar de conversas** no ChatView com abas Conversas / Docs, agrupamento por data (Hoje / Ontem / Esta semana / Mais antigas), infinite scroll (20/página) e botão de arquivar
+- Trocar de agente na aba Docs carrega automaticamente a conversa mais recente desse agente (ou limpa a tela para nova conversa)
+- 14 testes TDD (ConversaService + chat router com histórico), 589 testes passando no total
 
 ---
 
@@ -446,6 +469,10 @@ docagent/
 │   ├── audio/                  # STT + TTS — models, schemas, services, router, providers
 │   │   ├── stt/                # FasterWhisperSTT, OpenAIWhisperSTT
 │   │   └── tts/                # PiperTTS, OpenAITTS, ElevenLabsTTS
+│   ├── conversa/               # histórico de chat — models, schemas, services, router
+│   ├── agent/
+│   │   ├── llm_factory.py      # factory multi-provider (ollama, openai, groq, anthropic, gemini, hf_local)
+│   │   └── llm_hf.py           # provider hf_local — TurboQuant KV cache compression
 │   ├── mcp_server/             # registro MCP, descoberta de tools
 │   ├── whatsapp/               # instâncias WA, webhook, Evolution API client
 │   │   └── atendimento_service.py  # WhatsappAtendimentoService
@@ -456,7 +483,11 @@ docagent/
 │   ├── test_atendimento/       # services, router, SSE, webhook WA
 │   ├── test_telegram/          # models, services, router, webhook TG
 │   ├── test_fase17/            # AssinaturaService, quota, billing router
-│   └── test_audio/             # 42 testes unitários + 12 de integração (piper/whisper)
+│   ├── test_audio/             # 42 testes unitários + 12 de integração (piper/whisper)
+│   ├── test_llm_hf/            # 18 testes TDD — provider hf_local com mocks de sys.modules
+│   └── test_historico/         # 14 testes TDD — ConversaService + chat router com histórico
+├── tools/
+│   └── benchmark.py            # benchmark FP16 vs TQ-Nbit (latência, throughput, VRAM)
 ├── alembic/                    # migrações de banco
 ├── docs/
 │   ├── raw/                    # specs imutáveis por fase
@@ -497,6 +528,10 @@ docagent/
 | POST | `/api/atendimentos/{id}/devolver` | Devolve ao agente |
 | POST | `/api/atendimentos/{id}/encerrar` | Encerra atendimento |
 | GET | `/api/atendimentos/contatos` | CRUD de contatos |
+| GET | `/api/chat/conversas` | Lista conversas do usuário (paginada) |
+| GET | `/api/chat/conversas/{id}` | Conversa completa com mensagens |
+| DELETE | `/api/chat/conversas/{id}` | Arquivar conversa (soft delete) |
+| POST | `/api/chat/conversas/{id}/restaurar` | Restaurar conversa arquivada |
 | GET | `/api/assinatura/me` | Assinatura e plano do tenant |
 | GET | `/api/assinatura/me/uso` | Uso atual vs limites do plano |
 | POST | `/api/vagas/pipeline` | Inicia pipeline de análise de currículo |

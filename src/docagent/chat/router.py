@@ -3,7 +3,9 @@ Router FastAPI para chat, health e session.
 
 O agente e carregado do banco de dados a partir do agent_id da requisicao.
 Agentes com skills MCP (prefixo mcp:) carregam ferramentas via AsyncExitStack.
+Fase 19: persiste histórico de conversa no banco de dados.
 """
+import asyncio
 from contextlib import AsyncExitStack
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,7 +17,9 @@ from docagent.agent.configurable import ConfigurableAgent
 from docagent.agent.llm_factory import get_tenant_llm
 from docagent.agent.registry import AgentConfig
 from docagent.auth.current_user import CurrentUser
-from docagent.database import AsyncSessionLocal
+from docagent.conversa.models import MensagemRole
+from docagent.conversa.services import ConversaService
+from docagent.database import AsyncDBSession, AsyncSessionLocal
 from docagent.dependencies import get_session_manager
 from docagent.mcp_server.services import McpServiceDep, load_mcp_tools_for_skills
 from docagent.chat.schemas import ChatRequest, HealthResponse
@@ -76,6 +80,7 @@ async def chat(
     current_user: CurrentUser,
     agente_service: AgenteServiceDep,
     mcp_service: McpServiceDep,
+    db: AsyncDBSession,
     sessions: SessionManager = Depends(get_session_manager),
 ) -> StreamingResponse:
     try:
@@ -91,6 +96,28 @@ async def chat(
         tenant_llm = await get_tenant_llm(current_user.tenant_id, llm_db)
     llm_provider = getattr(tenant_llm, "model_name", "") or getattr(tenant_llm, "model", "") or ""
 
+    # ── Fase 19: gerenciamento de conversa ────────────────────────────────────
+    svc = ConversaService(db)
+
+    if request.conversa_id is not None:
+        conversa = await svc.get_by_id(request.conversa_id, tenant_id=current_user.tenant_id)
+        if conversa is None:
+            raise HTTPException(status_code=404, detail="Conversa não encontrada")
+        # Carrega histórico do banco como estado inicial
+        historico = await svc.carregar_historico(request.conversa_id)
+        session_state = {"messages": historico, "summary": ""}
+        sessions.update(request.session_id, session_state)
+    else:
+        conversa = await svc.criar(
+            tenant_id=current_user.tenant_id,
+            usuario_id=current_user.id,
+            agente_id=agente_id,
+        )
+
+    conversa_id = conversa.id
+    is_primeira_mensagem = conversa.titulo is None
+    # ─────────────────────────────────────────────────────────────────────────
+
     mcp_skills = _mcp_skill_names(agente.skill_names)
     stack = AsyncExitStack()
     mcp_tools = []
@@ -105,15 +132,53 @@ async def chat(
     service = ChatService(agent, sessions)
 
     async def managed_stream():
+        import json
+        # Envia o conversa_id como primeiro evento para o frontend
+        yield f"data: {json.dumps({'type': 'meta', 'conversa_id': conversa_id})}\n\n"
+
         async with stack:
             for chunk in service.stream(request.question, request.session_id):
                 yield chunk
+
+        # Persiste mensagens após o stream completo
+        async with AsyncSessionLocal() as persist_db:
+            persist_svc = ConversaService(persist_db)
+            await persist_svc.salvar_mensagem(conversa_id, MensagemRole.USER, request.question)
+
+            # Extrai resposta do assistente do estado final
+            assistant_answer = ""
+            if agent.last_state and agent.last_state.get("messages"):
+                last = agent.last_state["messages"][-1]
+                if isinstance(last, AIMessage):
+                    assistant_answer = last.content or ""
+
+            if assistant_answer:
+                await persist_svc.salvar_mensagem(
+                    conversa_id, MensagemRole.ASSISTANT, assistant_answer
+                )
+
+            # Gera título em background após o primeiro turn
+            if is_primeira_mensagem:
+                asyncio.create_task(
+                    _gerar_titulo_bg(conversa_id, request.question, tenant_llm)
+                )
 
     return StreamingResponse(
         managed_stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+async def _gerar_titulo_bg(conversa_id: int, primeira_mensagem: str, llm) -> None:
+    """Gera título da conversa em background sem bloquear o streaming."""
+    try:
+        async with AsyncSessionLocal() as db:
+            svc = ConversaService(db)
+            await svc.gerar_titulo(conversa_id, primeira_mensagem, llm)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Falha ao gerar título: %s", exc)
 
 
 @router.post("/chat/sync")

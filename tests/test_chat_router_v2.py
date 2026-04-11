@@ -48,9 +48,24 @@ def client():
     app.dependency_overrides[get_current_user] = lambda: mock_user
 
     mock_llm = MagicMock()
+    mock_conversa = MagicMock(id=1, titulo=None)
+    mock_conversa_svc = MagicMock()
+    mock_conversa_svc.return_value.criar = AsyncMock(return_value=mock_conversa)
+    mock_conversa_svc.return_value.get_by_id = AsyncMock(return_value=mock_conversa)
+    mock_conversa_svc.return_value.carregar_historico = AsyncMock(return_value=[])
+    mock_conversa_svc.return_value.salvar_mensagem = AsyncMock()
+    mock_conversa_svc.return_value.gerar_titulo = AsyncMock()
+    from docagent.database import get_db
+    app.dependency_overrides[get_db] = lambda: (x for x in [MagicMock()])
     with patch("docagent.chat.router.ChatService", return_value=mock_service), \
          patch("docagent.chat.router.ConfigurableAgent") as MockCA, \
-         patch("docagent.chat.router.get_tenant_llm", new=AsyncMock(return_value=mock_llm)):
+         patch("docagent.chat.router.get_tenant_llm", new=AsyncMock(return_value=mock_llm)), \
+         patch("docagent.chat.router.ConversaService", mock_conversa_svc), \
+         patch("docagent.chat.router.AsyncSessionLocal") as mock_sl:
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=None)
+        mock_sl.return_value = mock_db
         MockCA.return_value.build.return_value = MagicMock()
         yield TestClient(app), mock_service
 

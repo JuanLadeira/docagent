@@ -25,6 +25,7 @@ from docagent.mcp_server.router import router as mcp_router
 from docagent.assinatura.router import router as assinatura_router
 from docagent.vagas.router import router as vagas_router
 from docagent.audio.router import router as audio_router
+from docagent.conversa.router import router as conversa_router
 
 load_dotenv()
 
@@ -79,3 +80,6 @@ app.include_router(vagas_router)
 
 # Áudio — STT + TTS por tenant/agente
 app.include_router(audio_router)
+
+# Histórico de conversas (Fase 19)
+app.include_router(conversa_router)

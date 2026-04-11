@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { docagentApi } from '@/api/docagent'
+import { api, type Conversa } from '@/api/client'
 
 export interface Message {
   role: 'user' | 'assistant'
@@ -18,6 +19,13 @@ export const useChatStore = defineStore('chat', () => {
   const lastUploadedFile = ref<string | null>(null)
   const uploadFeedback = ref<string | null>(null)
 
+  // Fase 19 — histórico de conversas
+  const conversaId = ref<number | null>(null)
+  const conversas = ref<Conversa[]>([])
+  const conversasPage = ref(1)
+  const conversasHasMore = ref(false)
+  const conversasLoading = ref(false)
+
   // Persiste o sessionId
   sessionStorage.setItem('chat_session_id', sessionId.value)
 
@@ -27,9 +35,17 @@ export const useChatStore = defineStore('chat', () => {
     currentStep.value = null
 
     try {
-      const stream = docagentApi.streamChat(question, sessionId.value, selectedAgentId.value)
+      const stream = docagentApi.streamChat(
+        question,
+        sessionId.value,
+        selectedAgentId.value,
+        conversaId.value,
+      )
       for await (const event of stream) {
-        if (event.type === 'step') {
+        if (event.type === 'meta') {
+          // Captura o conversa_id retornado pelo backend
+          conversaId.value = event.conversa_id
+        } else if (event.type === 'step') {
           currentStep.value = event.content
         } else if (event.type === 'answer') {
           currentStep.value = null
@@ -44,6 +60,8 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       isLoading.value = false
       currentStep.value = null
+      // Atualiza a lista de conversas após cada mensagem
+      await fetchConversas(true)
     }
   }
 
@@ -69,6 +87,61 @@ export const useChatStore = defineStore('chat', () => {
     currentStep.value = null
     lastUploadedFile.value = null
     uploadFeedback.value = null
+    conversaId.value = null
+  }
+
+  async function fetchConversas(reset = false) {
+    if (conversasLoading.value) return
+    conversasLoading.value = true
+    try {
+      const page = reset ? 1 : conversasPage.value
+      const agId = selectedAgentId.value && !isNaN(Number(selectedAgentId.value))
+        ? Number(selectedAgentId.value)
+        : undefined
+      const res = await api.listConversas({
+        agente_id: agId,
+        arquivada: false,
+        page,
+        page_size: 20,
+      })
+      if (reset) {
+        conversas.value = res.data.items
+        conversasPage.value = 1
+      } else {
+        conversas.value.push(...res.data.items)
+      }
+      conversasHasMore.value = res.data.has_more
+      if (!reset) conversasPage.value = page + 1
+    } catch {
+      // silencioso
+    } finally {
+      conversasLoading.value = false
+    }
+  }
+
+  async function carregarConversa(id: number) {
+    try {
+      const res = await api.getConversa(id)
+      const det = res.data
+      conversaId.value = det.id
+      messages.value = det.mensagens
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .map(m => ({ role: m.role as 'user' | 'assistant', content: m.conteudo }))
+    } catch {
+      // silencioso
+    }
+  }
+
+  async function arquivarConversa(id: number) {
+    try {
+      await api.arquivarConversa(id)
+      conversas.value = conversas.value.filter(c => c.id !== id)
+      if (conversaId.value === id) {
+        await resetSession()
+      }
+    } catch {
+      // silencioso
+    }
   }
 
   return {
@@ -79,8 +152,15 @@ export const useChatStore = defineStore('chat', () => {
     selectedAgentId,
     lastUploadedFile,
     uploadFeedback,
+    conversaId,
+    conversas,
+    conversasHasMore,
+    conversasLoading,
     sendMessage,
     uploadDocument,
     resetSession,
+    fetchConversas,
+    carregarConversa,
+    arquivarConversa,
   }
 })
