@@ -159,7 +159,7 @@ async def test_voice_ignorado_se_stt_desabilitado(client, setup):
 
 @pytest.mark.asyncio
 async def test_voice_transcrito_e_processado_quando_stt_habilitado(client, setup, session_factory):
-    """Com STT habilitado: baixa arquivo, transcreve, executa agente e responde."""
+    """Com STT habilitado: baixa arquivo, transcreve e chama _executar_e_responder_direto."""
     async with session_factory() as s:
         cfg = AudioConfig(
             tenant_id=setup["tenant"].id, agente_id=None,
@@ -171,16 +171,15 @@ async def test_voice_transcrito_e_processado_quando_stt_habilitado(client, setup
     with (
         patch("docagent.telegram.router._baixar_audio_telegram", new_callable=AsyncMock, return_value=b"OGG_BYTES") as mock_dl,
         patch("docagent.audio.services.AudioService.transcrever", new_callable=AsyncMock, return_value="Olá Telegram") as mock_stt,
-        patch("docagent.telegram.router._executar_agente_telegram", new_callable=AsyncMock, return_value="Resposta TG") as mock_agent,
-        patch("docagent.telegram.router._enviar_resposta_telegram", new_callable=AsyncMock) as mock_send,
+        patch("docagent.telegram.router._executar_e_responder_direto", new_callable=AsyncMock) as mock_direto,
     ):
         r = await client.post(f"/api/telegram/webhook/{BOT_TOKEN}", json=_voice_update())
 
     assert r.status_code == 200
     mock_dl.assert_called_once()
     mock_stt.assert_called_once()
-    mock_agent.assert_called_once()
-    mock_send.assert_called_once()
+    # cria_atendimentos=False → fluxo direto; audio_config é passado para TTS
+    mock_direto.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -197,8 +196,7 @@ async def test_audio_file_transcrito_quando_stt_habilitado(client, setup, sessio
     with (
         patch("docagent.telegram.router._baixar_audio_telegram", new_callable=AsyncMock, return_value=b"MP3_BYTES"),
         patch("docagent.audio.services.AudioService.transcrever", new_callable=AsyncMock, return_value="texto do áudio"),
-        patch("docagent.telegram.router._executar_agente_telegram", new_callable=AsyncMock, return_value="Resposta"),
-        patch("docagent.telegram.router._enviar_resposta_telegram", new_callable=AsyncMock),
+        patch("docagent.telegram.router._executar_e_responder_direto", new_callable=AsyncMock),
     ):
         r = await client.post(f"/api/telegram/webhook/{BOT_TOKEN}", json=_audio_update())
 
