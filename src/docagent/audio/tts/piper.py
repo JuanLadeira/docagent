@@ -9,19 +9,35 @@ Falha graciosamente se piper ou ffmpeg não estiverem disponíveis.
 """
 import asyncio
 import logging
+import os
+from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+# Diretório onde os modelos .onnx ficam armazenados no container
+PIPER_MODELS_DIR = Path(os.environ.get("PIPER_MODELS_DIR", "/app/models/piper"))
+
+
+def _resolver_path_modelo(voz: str) -> str:
+    """Resolve 'pt_BR-faber-medium' → '/app/models/piper/pt_BR-faber-medium.onnx'.
+    Se já for um path absoluto, retorna como está.
+    """
+    if os.path.isabs(voz):
+        return voz
+    candidato = PIPER_MODELS_DIR / f"{voz}.onnx"
+    return str(candidato)
 
 
 class PiperTTS:
 
     async def sintetizar(self, texto: str, voz: str) -> bytes:
         """Sintetiza texto em áudio OGG/OPUS via piper + ffmpeg."""
+        model_path = _resolver_path_modelo(voz)
         try:
             # Passo 1: piper lê texto do stdin e gera WAV no stdout
             piper_proc = await asyncio.create_subprocess_exec(
                 "piper",
-                "--model", voz,
+                "--model", model_path,
                 "--output-raw",
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,

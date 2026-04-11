@@ -1,4 +1,4 @@
-import axios from 'axios'
+import apiClient from '@/api/client'
 
 export interface AudioConfig {
   id: number
@@ -18,35 +18,28 @@ export interface AudioConfig {
 
 export type AudioConfigUpdate = Omit<AudioConfig, 'id' | 'tenant_id' | 'agente_id'>
 
-const BASE = import.meta.env.VITE_API_URL ?? ''
-
-function authHeader() {
-  const token = localStorage.getItem('token')
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
-
 export const audioApi = {
   async getDefault(): Promise<AudioConfig> {
-    const r = await axios.get(`${BASE}/api/audio-config/default`, { headers: authHeader() })
+    const r = await apiClient.get('/audio-config/default')
     return r.data
   },
 
   async saveDefault(data: AudioConfigUpdate): Promise<AudioConfig> {
-    const r = await axios.put(`${BASE}/api/audio-config/default`, data, { headers: authHeader() })
+    const r = await apiClient.put('/audio-config/default', data)
     return r.data
   },
 
   async getAgente(agenteId: number): Promise<AudioConfig> {
-    const r = await axios.get(`${BASE}/api/agentes/${agenteId}/audio-config`, { headers: authHeader() })
+    const r = await apiClient.get(`/agentes/${agenteId}/audio-config`)
     return r.data
   },
 
   async saveAgente(agenteId: number, data: AudioConfigUpdate): Promise<AudioConfig> {
-    const r = await axios.put(`${BASE}/api/agentes/${agenteId}/audio-config`, data, { headers: authHeader() })
+    const r = await apiClient.put(`/agentes/${agenteId}/audio-config`, data)
     return r.data
   },
 
   async deleteAgente(agenteId: number): Promise<void> {
-    await axios.delete(`${BASE}/api/agentes/${agenteId}/audio-config`, { headers: authHeader() })
+    await apiClient.delete(`/agentes/${agenteId}/audio-config`)
   },
 }

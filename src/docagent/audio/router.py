@@ -49,7 +49,7 @@ async def upsert_default_config(
         session.add(cfg)
 
     _aplicar_dados(cfg, data)
-    await session.commit()
+    await session.flush()
     await session.refresh(cfg)
     return cfg
 
@@ -93,7 +93,7 @@ async def upsert_agente_config(
         session.add(cfg)
 
     _aplicar_dados(cfg, data)
-    await session.commit()
+    await session.flush()
     await session.refresh(cfg)
     return cfg
 
@@ -121,7 +121,7 @@ async def delete_agente_config(
         raise HTTPException(status_code=404, detail="Config de áudio não encontrada para este agente.")
 
     await session.delete(cfg)
-    await session.commit()
+    await session.flush()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
