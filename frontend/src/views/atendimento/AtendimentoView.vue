@@ -193,7 +193,7 @@ async function selecionar(atendimento: Atendimento) {
         id: Date.now(),
         origem: event.origem as MensagemOrigem,
         conteudo: event.conteudo as string,
-        tipo: (event.tipo as string) ?? 'text',
+        tipo: ((event.tipo as string) ?? 'text') as 'text' | 'audio',
         media_ref: (event.media_ref as string) ?? null,
         created_at: (event.created_at as string) ?? new Date().toISOString(),
       }
