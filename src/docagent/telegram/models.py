@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from docagent.crypto import EncryptedString
 from docagent.database import Base
 
 if TYPE_CHECKING:
@@ -18,7 +19,7 @@ class TelegramBotStatus(str, enum.Enum):
 class TelegramInstancia(Base):
     __tablename__ = "telegram_instancia"
 
-    bot_token: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
+    bot_token: Mapped[str] = mapped_column(EncryptedString(700), unique=True, nullable=False)
     bot_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
     webhook_configured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[TelegramBotStatus] = mapped_column(

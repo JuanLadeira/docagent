@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
+from docagent.crypto import EncryptedString
 from docagent.database import Base
 
 if TYPE_CHECKING:
@@ -52,7 +53,7 @@ class AudioConfig(Base):
     piper_voz: Mapped[str] = mapped_column(default="pt_BR-faber-medium")
     openai_tts_voz: Mapped[str] = mapped_column(default="nova")
     elevenlabs_voice_id: Mapped[str | None] = mapped_column(nullable=True)
-    elevenlabs_api_key: Mapped[str | None] = mapped_column(nullable=True)
+    elevenlabs_api_key: Mapped[str | None] = mapped_column(EncryptedString(700), nullable=True)
 
     # Modo de resposta
     modo_resposta: Mapped[str] = mapped_column(default=ModoResposta.AUDIO_E_TEXTO.value)

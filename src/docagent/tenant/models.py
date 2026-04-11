@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from docagent.crypto import EncryptedString
 from docagent.database import Base
 
 if TYPE_CHECKING:
@@ -22,7 +23,7 @@ class Tenant(Base):
     # Configuração de LLM por tenant (usada quando llm_mode = "api")
     llm_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     llm_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    llm_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    llm_api_key: Mapped[str | None] = mapped_column(EncryptedString(700), nullable=True)
 
     # Relationships
     usuarios: Mapped[list["Usuario"]] = relationship(

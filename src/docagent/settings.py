@@ -37,6 +37,10 @@ class Settings:
     TURBOQUANT_BITS: int = int(os.getenv("TURBOQUANT_BITS", "3"))
     TURBOQUANT_DEVICE: str = os.getenv("TURBOQUANT_DEVICE", "cuda")
 
+    # Criptografia de secrets no banco (Fernet — Fase 21b)
+    # Gerar: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY", "")
+
     # Rate limiting — Redis backend (opcional, para múltiplos workers)
     # Se vazio, usa memória local (adequado para worker único)
     REDIS_URL: str = os.getenv("REDIS_URL", "")
