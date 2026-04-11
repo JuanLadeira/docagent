@@ -140,6 +140,96 @@ await _executar_agente_e_salvar(..., audio_config=audio_config)
 
 O prefixo `[Áudio]` na mensagem salva é um marcador para o operador: indica que aquela mensagem chegou como voz e foi transcrita. O agente recebe o texto puro (sem o prefixo) para não contaminar o contexto.
 
+### Player de áudio no painel do operador
+
+Fazer a transcrição aparecer na UI foi o primeiro passo. O segundo foi permitir que o operador ouça o áudio original — e ouça a resposta do bot em voz, se TTS estiver ativo.
+
+A solução exigiu três camadas:
+
+**1. Schema:** `MensagemAtendimento` ganhou dois campos:
+
+```
+tipo      VARCHAR(10)  DEFAULT 'text'   — 'text' ou 'audio'
+media_ref VARCHAR(500) NULL             — referência para o arquivo de áudio
+```
+
+**2. Endpoint proxy:** `GET /api/atendimentos/media/{mensagem_id}` resolve o `media_ref` e serve o áudio como `audio/ogg`. Dois formatos de referência:
+
+```python
+# Áudio recebido do Telegram — proxy para o CDN do Telegram
+"telegram:{bot_token}:{file_id}"
+→ GET https://api.telegram.org/file/bot{token}/{path}
+
+# Áudio local (recebido do WhatsApp ou gerado por TTS)
+"local:{uuid}.ogg"
+→ abre data/audio/{uuid}.ogg e faz streaming do disco
+```
+
+O endpoint valida que o `atendimento` pertence ao `tenant_id` do usuário autenticado antes de servir qualquer arquivo — sem isso, qualquer token válido poderia acessar o áudio de qualquer tenant.
+
+**3. Frontend:** a bolha de mensagem verifica `msg.tipo`:
+
+```html
+<div v-if="msg.tipo === 'audio' && msg.media_ref">
+  <audio controls preload="none"
+         :src="`/api/atendimentos/media/${msg.id}`" />
+  <p>{{ msg.conteudo.replace(/^\[Áudio\] /, '') }}</p>
+</div>
+<div v-else>{{ msg.conteudo }}</div>
+```
+
+O player usa `preload="none"` — o áudio só é baixado quando o operador clicar em play, não ao abrir o painel. A transcrição aparece abaixo do player como texto menor, útil quando o operador está num ambiente sem som.
+
+### Telegram e WhatsApp: o mesmo resultado, caminhos diferentes
+
+A primeira versão do player foi implementada apenas para o Telegram. Quando o WhatsApp foi testado, nada funcionava — os campos `tipo` e `media_ref` ficavam `null` para todos os áudios do WhatsApp.
+
+O problema estava em como cada canal entrega o áudio:
+
+| | Telegram | WhatsApp (Evolution API) |
+|---|---|---|
+| **Áudio recebido** | `file_id` no payload → baixa sob demanda via Bot API | `audioMessage` no payload → bytes via `getBase64FromMediaMessage` |
+| **Referência armazenada** | `telegram:{token}:{file_id}` | `local:{uuid}.ogg` (bytes salvos em disco imediatamente) |
+| **TTS enviado** | `sendVoice` com bytes | `sendWhatsAppAudio` com base64 |
+
+O Telegram tem um CDN permanente acessível via `file_id` — basta guardar o identificador e buscar os bytes depois. O WhatsApp, via Evolution API, entrega os bytes na hora do webhook via base64. Não há `file_id` nem URL permanente. Para o player funcionar, os bytes precisam ser salvos em disco no momento da transcrição:
+
+```python
+# WhatsApp: bytes chegam na hora, salvar imediatamente
+audio_bytes = await _baixar_midia_evolution(evento.instance, key)
+conteudo = await AudioService.transcrever(audio_bytes, audio_config)
+media_ref_contato = await _salvar_audio_local(audio_bytes)
+# → "local:a3f8c2d1...ogg"
+
+# Telegram: apenas guardar o file_id, baixar quando o operador pedir
+media_ref_contato = f"telegram:{bot_token}:{voice_or_audio.file_id}"
+```
+
+Para o TTS de resposta, os dois canais convergem: ambos geram bytes localmente via Piper/OpenAI/ElevenLabs. A diferença está em como enviam: Telegram usa `sendVoice` com multipart, WhatsApp usa `sendWhatsAppAudio` com base64. Em ambos os casos, os bytes são salvos em `data/audio/` antes do envio — o arquivo fica disponível para o player sem precisar sintetizar duas vezes:
+
+```python
+tts_bytes = await AudioService.sintetizar(answer, audio_config)
+tts_media_ref = await _salvar_audio_local(tts_bytes)  # salva em disco
+# usa os bytes em memória para enviar ao canal
+await _enviar_audio_bytes_whatsapp(instance, numero, tts_bytes, ...)
+# ou
+await _enviar_audio_bytes_telegram(bot_token, chat_id, tts_bytes, ...)
+```
+
+O `_salvar_audio_local` é uma função utilitária compartilhada pelos dois routers:
+
+```python
+async def _salvar_audio_local(audio_bytes: bytes) -> str:
+    audio_dir = os.path.join(os.getcwd(), "data", "audio")
+    os.makedirs(audio_dir, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.ogg"
+    with open(os.path.join(audio_dir, filename), "wb") as f:
+        f.write(audio_bytes)
+    return f"local:{filename}"
+```
+
+`data/audio/` está montado como volume no Docker Compose (`./data:/app/data`), então os arquivos sobrevivem a reinicializações do container.
+
 ---
 
 ## FASE 19 — Histórico: o que significa "lembrar" uma conversa
@@ -269,7 +359,9 @@ Não há endpoint "criar conversa vazia" — a conversa só existe depois do pri
 
 **Modelar o banco antes de escrever código.** O DBML do schema completo foi escrito depois de todas as tabelas existirem — mas deveria ter sido escrito antes. Ver todas as relações num diagrama torna óbvio o que seria obscuro no código: por que `audio_config` tem `(tenant_id, agente_id)` como chave única, por que `conversa` tem um índice composto em `(usuario_id, updated_at)`, por que `atendimento` tem FKs para duas instâncias diferentes com SET NULL.
 
-**O que ainda falta no áudio.** A UI do painel de operadores mostra mensagens de voz como texto transcrito — não há player de áudio. Para reproduzir o áudio original do contato, o backend precisaria salvar o `file_id` do Telegram na mensagem e expor um endpoint proxy que baixa o arquivo sob demanda. Para reproduzir o áudio gerado pelo TTS, precisaria armazenar o `.ogg` gerado. Ambos são possíveis, mas exigem mudança no schema (`mensagem_atendimento` ganharia campos `tipo` e `media_url`) e um endpoint de streaming de mídia. A prioridade foi fazer o texto aparecer primeiro; o player é a próxima iteração.
+**Dois canais, dois protocolos, mesmo contrato.** Telegram e WhatsApp entregam áudio de formas opostas. O Telegram tem um CDN com `file_id` permanente — os bytes podem ser buscados depois. O WhatsApp entrega os bytes no próprio webhook e não tem URL permanente — ou você salva na hora, ou perde. Perceber isso cedo evitou uma abstração errada: se tivesse modelado `media_ref` como "sempre uma URL remota", o WhatsApp não teria funcionado. A solução foi um contrato mínimo — `media_ref` é uma string opaca com prefixo (`telegram:` ou `local:`) — e o endpoint proxy resolve a diferença. O frontend não sabe e não precisa saber qual é o canal de origem.
+
+**Não sintetize duas vezes.** A primeira versão gerava o áudio TTS, enviava ao canal, e depois tentava gerá-lo de novo para salvar em disco. Além de ineficiente, criava risco de divergência entre o que foi enviado e o que ficou armazenado. A correção foi inverter a ordem: gera → salva → envia os bytes que já estão em memória. Um único síntese, dois destinos.
 
 ---
 
