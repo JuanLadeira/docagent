@@ -25,6 +25,7 @@ from docagent.atendimento.models import (
     CanalAtendimento,
     MensagemAtendimento,
     MensagemOrigem,
+    MensagemTipo,
 )
 from docagent.atendimento.sse import atendimento_lista_sse_manager, atendimento_sse_manager
 from docagent.auth.current_user import CurrentUser
@@ -385,7 +386,6 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
             await db.refresh(atendimento)
 
         # Salvar mensagem do contato
-        from docagent.atendimento.models import MensagemTipo
         is_audio_msg = voice_or_audio is not None
         conteudo_salvo = f"[Áudio] {conteudo}" if is_audio_msg else conteudo
         msg_contato = MensagemAtendimento(
