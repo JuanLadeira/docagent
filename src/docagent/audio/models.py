@@ -44,7 +44,7 @@ class AudioConfig(Base):
     # STT
     stt_habilitado: Mapped[bool] = mapped_column(default=False)
     stt_provider: Mapped[str] = mapped_column(default=SttProvider.FASTER_WHISPER.value)
-    stt_modelo: Mapped[str] = mapped_column(default="base")
+    stt_modelo: Mapped[str] = mapped_column(default="small")
 
     # TTS
     tts_habilitado: Mapped[bool] = mapped_column(default=False)
