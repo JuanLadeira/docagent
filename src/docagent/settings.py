@@ -36,3 +36,7 @@ class Settings:
     TURBOQUANT_ENABLED: bool = os.getenv("TURBOQUANT_ENABLED", "true").lower() == "true"
     TURBOQUANT_BITS: int = int(os.getenv("TURBOQUANT_BITS", "3"))
     TURBOQUANT_DEVICE: str = os.getenv("TURBOQUANT_DEVICE", "cuda")
+
+    # Rate limiting — Redis backend (opcional, para múltiplos workers)
+    # Se vazio, usa memória local (adequado para worker único)
+    REDIS_URL: str = os.getenv("REDIS_URL", "")

@@ -12,7 +12,9 @@ import asyncio
 import logging
 from contextlib import AsyncExitStack
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+
+from docagent.rate_limit import limiter
 from langchain_core.messages import AIMessage
 from sqlalchemy import select
 
@@ -144,7 +146,8 @@ async def configurar_webhook(
 # ── Webhook público ───────────────────────────────────────────────────────────
 
 @router.post("/webhook/{bot_token}", status_code=200)
-async def receber_update(bot_token: str, update: TelegramUpdate):
+@limiter.limit("100/minute")
+async def receber_update(request: Request, bot_token: str, update: TelegramUpdate):
     """Endpoint público chamado pelo Telegram. Sempre retorna 200."""
     await _processar_update(bot_token, update)
     return {"ok": True}

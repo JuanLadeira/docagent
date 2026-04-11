@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+
+from docagent.rate_limit import limiter
 
 from docagent.admin.current_admin import CurrentAdmin
 from docagent.admin.schemas import AdminCreate, AdminPublic, Token
@@ -25,7 +27,9 @@ router = APIRouter(
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit("5/minute")
 async def admin_login(
+    request: Request,
     service: AdminServiceDep,
     form_data: OAuth2PasswordRequestForm = Depends(),
 ):

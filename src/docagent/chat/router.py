@@ -8,7 +8,7 @@ Fase 19: persiste histórico de conversa no banco de dados.
 import asyncio
 from contextlib import AsyncExitStack
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage
 
@@ -25,6 +25,7 @@ from docagent.mcp_server.services import McpServiceDep, load_mcp_tools_for_skill
 from docagent.chat.schemas import ChatRequest, HealthResponse, SttResponse, TtsRequest
 from docagent.chat.service import ChatService
 from docagent.chat.session import SessionManager
+from docagent.rate_limit import get_tenant_key, limiter
 
 router = APIRouter()
 
@@ -75,8 +76,10 @@ def health() -> HealthResponse:
 
 
 @router.post("/chat")
+@limiter.limit("20/minute", key_func=get_tenant_key)
 async def chat(
-    request: ChatRequest,
+    request: Request,
+    body: ChatRequest,
     current_user: CurrentUser,
     agente_service: AgenteServiceDep,
     mcp_service: McpServiceDep,
@@ -84,13 +87,13 @@ async def chat(
     sessions: SessionManager = Depends(get_session_manager),
 ) -> StreamingResponse:
     try:
-        agente_id = int(request.agent_id)
+        agente_id = int(body.agent_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="agent_id deve ser um numero inteiro")
 
     agente = await agente_service.get_by_id(agente_id, tenant_id=current_user.tenant_id)
     if not agente or not agente.ativo:
-        raise HTTPException(status_code=404, detail=f"Agente '{request.agent_id}' nao encontrado")
+        raise HTTPException(status_code=404, detail=f"Agente '{body.agent_id}' nao encontrado")
 
     async with AsyncSessionLocal() as llm_db:
         tenant_llm = await get_tenant_llm(current_user.tenant_id, llm_db)
@@ -99,14 +102,14 @@ async def chat(
     # ── Fase 19: gerenciamento de conversa ────────────────────────────────────
     svc = ConversaService(db)
 
-    if request.conversa_id is not None:
-        conversa = await svc.get_by_id(request.conversa_id, tenant_id=current_user.tenant_id)
+    if body.conversa_id is not None:
+        conversa = await svc.get_by_id(body.conversa_id, tenant_id=current_user.tenant_id)
         if conversa is None:
             raise HTTPException(status_code=404, detail="Conversa não encontrada")
         # Carrega histórico do banco como estado inicial
-        historico = await svc.carregar_historico(request.conversa_id)
+        historico = await svc.carregar_historico(body.conversa_id)
         session_state = {"messages": historico, "summary": ""}
-        sessions.update(request.session_id, session_state)
+        sessions.update(body.session_id, session_state)
     else:
         conversa = await svc.criar(
             tenant_id=current_user.tenant_id,
@@ -137,13 +140,13 @@ async def chat(
         yield f"data: {json.dumps({'type': 'meta', 'conversa_id': conversa_id})}\n\n"
 
         async with stack:
-            for chunk in service.stream(request.question, request.session_id):
+            for chunk in service.stream(body.question, body.session_id):
                 yield chunk
 
         # Persiste mensagens após o stream completo
         async with AsyncSessionLocal() as persist_db:
             persist_svc = ConversaService(persist_db)
-            await persist_svc.salvar_mensagem(conversa_id, MensagemRole.USER, request.question)
+            await persist_svc.salvar_mensagem(conversa_id, MensagemRole.USER, body.question)
 
             # Extrai resposta do assistente do estado final
             assistant_answer = ""
@@ -160,7 +163,7 @@ async def chat(
             # Gera título em background após o primeiro turn
             if is_primeira_mensagem:
                 asyncio.create_task(
-                    _gerar_titulo_bg(conversa_id, request.question, tenant_llm)
+                    _gerar_titulo_bg(conversa_id, body.question, tenant_llm)
                 )
 
     return StreamingResponse(

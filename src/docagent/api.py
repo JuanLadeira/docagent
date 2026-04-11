@@ -8,8 +8,14 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import HumanMessage
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
+from docagent.rate_limit import limiter
 
 from docagent.chat.router import router as chat_router
 from docagent.rag.router import router as documents_router
@@ -51,6 +57,24 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="DocAgent API", version="3.0.0", lifespan=lifespan)
+
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+# CORS
+_allowed_origins = [os.getenv("FRONTEND_URL", "http://localhost:5173")]
+if os.getenv("ENV", "development") == "development":
+    _allowed_origins += ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 # RAG + Agentes
 app.include_router(chat_router)

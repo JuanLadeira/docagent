@@ -21,6 +21,8 @@ from contextlib import AsyncExitStack
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
+
+from docagent.rate_limit import limiter
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage
 from sqlalchemy import select
@@ -217,7 +219,8 @@ async def eventos_instancia(
 # ── Webhook (recebe eventos da Evolution API) ─────────────────────────────────
 
 @router.post("/webhook", status_code=status.HTTP_200_OK)
-async def receber_webhook(evento: WebhookEvento):
+@limiter.limit("100/minute")
+async def receber_webhook(request: Request, evento: WebhookEvento):
     # Evolution API v1 usa maiúsculo+underscore; v2 usa minúsculo+ponto
     event_normalized = evento.event.upper().replace(".", "_")
     if event_normalized == "QRCODE_UPDATED":

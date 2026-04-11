@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from docagent.auth.schemas import ChangePasswordRequest, ForgotPasswordRequest, ResetPasswordRequest
@@ -10,6 +10,7 @@ from docagent.auth.security import (
     verify_password_reset_token,
 )
 from docagent.auth.current_user import CurrentUser
+from docagent.rate_limit import limiter
 from docagent.settings import Settings
 from docagent.usuario.services import UsuarioServiceDep
 
@@ -23,7 +24,9 @@ router = APIRouter(
 
 
 @router.post("/login")
+@limiter.limit("5/minute")
 async def login(
+    request: Request,
     service: UsuarioServiceDep,
     form_data: OAuth2PasswordRequestForm = Depends(),
 ):
@@ -40,7 +43,8 @@ async def login(
 
 
 @router.post("/forgot-password", status_code=status.HTTP_200_OK)
-async def forgot_password(data: ForgotPasswordRequest, service: UsuarioServiceDep):
+@limiter.limit("3/hour")
+async def forgot_password(request: Request, data: ForgotPasswordRequest, service: UsuarioServiceDep):
     user = await service.get_by_email(data.email)
     if not user:
         # Retorna 200 mesmo se o email não existir (evita enumeração de usuários)
@@ -56,7 +60,8 @@ async def forgot_password(data: ForgotPasswordRequest, service: UsuarioServiceDe
 
 
 @router.post("/reset-password", status_code=status.HTTP_200_OK)
-async def reset_password(data: ResetPasswordRequest, service: UsuarioServiceDep):
+@limiter.limit("3/hour")
+async def reset_password(request: Request, data: ResetPasswordRequest, service: UsuarioServiceDep):
     email = verify_password_reset_token(data.token)
     if not email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token inválido ou expirado")
