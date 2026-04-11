@@ -193,6 +193,8 @@ async function selecionar(atendimento: Atendimento) {
         id: Date.now(),
         origem: event.origem as MensagemOrigem,
         conteudo: event.conteudo as string,
+        tipo: (event.tipo as string) ?? 'text',
+        media_ref: (event.media_ref as string) ?? null,
         created_at: (event.created_at as string) ?? new Date().toISOString(),
       }
       selecionado.value.mensagens.push(nova)
@@ -645,7 +647,32 @@ onUnmounted(() => {
             <span class="text-xs text-gray-400 dark:text-slate-500 mb-0.5 px-1">
               {{ labelOrigem(msg.origem) }} · {{ formatarHora(msg.created_at) }}
             </span>
+
+            <!-- Mensagem de áudio -->
+            <div v-if="msg.tipo === 'audio' && msg.media_ref" class="flex flex-col gap-1">
+              <div
+                class="px-3 py-2 rounded-2xl"
+                :class="classBolha(msg.origem)"
+              >
+                <audio
+                  controls
+                  preload="none"
+                  class="h-8 w-48 accent-white"
+                  :src="`/api/atendimentos/media/${msg.id}`"
+                />
+              </div>
+              <!-- Transcrição abaixo do player -->
+              <p
+                class="text-xs text-gray-400 dark:text-slate-500 px-1 max-w-[12rem]"
+                :class="msg.origem === 'CONTATO' ? 'self-start' : 'self-end'"
+              >
+                {{ msg.conteudo.replace(/^\[Áudio\] /, '') }}
+              </p>
+            </div>
+
+            <!-- Mensagem de texto -->
             <div
+              v-else
               class="px-4 py-2.5 rounded-2xl text-sm leading-relaxed"
               :class="classBolha(msg.origem)"
             >

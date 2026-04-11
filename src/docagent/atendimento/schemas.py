@@ -9,6 +9,8 @@ class MensagemPublic(BaseModel):
     id: int
     origem: MensagemOrigem
     conteudo: str
+    tipo: str = "text"
+    media_ref: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

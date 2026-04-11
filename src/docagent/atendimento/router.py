@@ -94,6 +94,76 @@ async def eventos_lista(tenant_id: TenantIdSse):
     )
 
 
+# ── Proxy de mídia (áudio) ────────────────────────────────────────────────────
+# Deve vir antes de /{atendimento_id} para evitar conflito de rota
+
+@router.get("/media/{mensagem_id}")
+async def stream_media(mensagem_id: int, current_user: CurrentUser, session: AsyncDBSession):
+    """Serve o áudio de uma mensagem.
+
+    media_ref pode ser:
+      - "telegram:{bot_token}:{file_id}" → proxy para a Bot API do Telegram
+      - "local:{filename}"               → arquivo em data/audio/
+    """
+    from docagent.atendimento.models import MensagemAtendimento
+    from sqlalchemy import select as _sel
+
+    result = await session.execute(
+        _sel(MensagemAtendimento)
+        .join(Atendimento, MensagemAtendimento.atendimento_id == Atendimento.id)
+        .where(
+            MensagemAtendimento.id == mensagem_id,
+            Atendimento.tenant_id == current_user.tenant_id,
+        )
+    )
+    msg = result.scalar_one_or_none()
+    if not msg or not msg.media_ref:
+        raise HTTPException(status_code=404, detail="Mídia não encontrada")
+
+    ref = msg.media_ref
+
+    if ref.startswith("telegram:"):
+        # formato: telegram:{bot_token}:{file_id}
+        _, bot_token, file_id = ref.split(":", 2)
+        from docagent.telegram.client import get_telegram_client
+        import httpx
+        async with get_telegram_client(bot_token) as client:
+            r = await client.post("/getFile", json={"file_id": file_id})
+            r.raise_for_status()
+            file_path = r.json().get("result", {}).get("file_path", "")
+        if not file_path:
+            raise HTTPException(status_code=502, detail="Telegram não retornou file_path")
+        url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+        async with httpx.AsyncClient(timeout=30.0) as dl:
+            resp = await dl.get(url)
+            resp.raise_for_status()
+            audio_bytes = resp.content
+        return StreamingResponse(
+            iter([audio_bytes]),
+            media_type="audio/ogg",
+            headers={"Content-Length": str(len(audio_bytes))},
+        )
+
+    if ref.startswith("local:"):
+        import os
+        filename = ref.split(":", 1)[1]
+        audio_dir = os.path.join(os.getcwd(), "data", "audio")
+        filepath = os.path.join(audio_dir, filename)
+        if not os.path.isfile(filepath):
+            raise HTTPException(status_code=404, detail="Arquivo de áudio não encontrado")
+        async def file_stream():
+            with open(filepath, "rb") as f:
+                while chunk := f.read(65536):
+                    yield chunk
+        return StreamingResponse(
+            file_stream(),
+            media_type="audio/ogg",
+            headers={"Content-Length": str(os.path.getsize(filepath))},
+        )
+
+    raise HTTPException(status_code=400, detail="media_ref com formato desconhecido")
+
+
 # ── CRUD de contatos ──────────────────────────────────────────────────────────
 # Devem vir antes de /{atendimento_id} para evitar conflito de rota
 
