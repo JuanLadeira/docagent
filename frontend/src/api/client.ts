@@ -95,6 +95,8 @@ export interface MensagemAtendimento {
   id: number
   origem: MensagemOrigem
   conteudo: string
+  tipo: 'text' | 'audio'
+  media_ref: string | null
   created_at: string
 }
 

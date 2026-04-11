@@ -283,6 +283,9 @@ async function changePassword() {
         Configuração padrão de STT/TTS para todos os agentes do tenant.
         Pode ser sobrescrita individualmente em cada agente.
       </p>
+      <div class="mb-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 text-amber-700 dark:text-amber-300 text-xs">
+        Agentes com configuração própria (editável na página do agente) não são afetados por esta configuração padrão.
+      </div>
       <AudioConfigForm />
     </div>
 

@@ -30,5 +30,6 @@ class AudioConfigPublic(AudioConfigBase):
     id: int
     tenant_id: int
     agente_id: int | None = None
+    is_agent_override: bool = False
 
     model_config = {"from_attributes": True}

@@ -17,8 +17,53 @@ const docError = ref('')
 const sidebarTab = ref<'conversas' | 'docs'>('conversas')
 const conversasSidebarEl = ref<HTMLElement | null>(null)
 
+// ── Gravação de áudio ─────────────────────────────────────────────────────────
+const isRecording = ref(false)
+const recordingSeconds = ref(0)
+let mediaRecorder: MediaRecorder | null = null
+let recordingInterval: ReturnType<typeof setInterval> | null = null
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const chunks: BlobPart[] = []
+    // Prefere ogg/opus (melhor compatibilidade com faster-whisper); fallback para webm
+    const mimeType = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+      ? 'audio/ogg;codecs=opus'
+      : 'audio/webm'
+    mediaRecorder = new MediaRecorder(stream, { mimeType })
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop())
+      const blob = new Blob(chunks, { type: mimeType })
+      isRecording.value = false
+      recordingSeconds.value = 0
+      if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null }
+      await chat.sendAudioMessage(blob)
+    }
+    mediaRecorder.start()
+    isRecording.value = true
+    recordingSeconds.value = 0
+    recordingInterval = setInterval(() => recordingSeconds.value++, 1000)
+  } catch {
+    alert('Não foi possível acessar o microfone.')
+  }
+}
+
+function stopRecording() {
+  mediaRecorder?.stop()
+}
+
+function formatRecordingTime(s: number) {
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
 onMounted(async () => {
   await agentsStore.fetchIfNeeded()
+  // Auto-seleciona o primeiro agente se nenhum válido estiver selecionado
+  if (isNaN(Number(chat.selectedAgentId)) && agentsStore.agents.length > 0) {
+    chat.selectedAgentId = String(agentsStore.agents[0].id)
+  }
   if (chat.selectedAgentId) loadDocumentos(chat.selectedAgentId)
   await chat.fetchConversas(true)
 })
@@ -392,11 +437,18 @@ async function onSidebarScroll() {
         <template v-for="(msg, i) in chat.messages" :key="i">
           <!-- User message -->
           <div v-if="msg.role === 'user'" class="flex justify-end">
-            <div
-              class="max-w-[70%] bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm"
-              style="white-space: pre-wrap"
-            >
-              {{ msg.content }}
+            <div class="max-w-[70%] flex flex-col items-end gap-1">
+              <!-- Player da gravação (quando veio de áudio) -->
+              <div v-if="msg.audioUrl" class="bg-indigo-600 rounded-2xl rounded-tr-sm px-3 py-2">
+                <audio controls preload="auto" class="h-8 w-48 accent-white" :src="msg.audioUrl" />
+              </div>
+              <!-- Texto (transcrição ou mensagem digitada) -->
+              <div
+                class="bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm"
+                style="white-space: pre-wrap"
+              >
+                {{ msg.content }}
+              </div>
             </div>
           </div>
 
@@ -408,11 +460,17 @@ async function onSidebarScroll() {
               >
                 🤖
               </div>
-              <div
-                class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-slate-800 dark:text-slate-100 shadow-sm"
-                style="white-space: pre-wrap"
-              >
-                {{ msg.content }}
+              <div class="flex flex-col gap-1">
+                <div
+                  class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-slate-800 dark:text-slate-100 shadow-sm"
+                  style="white-space: pre-wrap"
+                >
+                  {{ msg.content }}
+                </div>
+                <!-- Player TTS (quando o agente respondeu em áudio) -->
+                <div v-if="msg.audioUrl" class="pl-1">
+                  <audio controls preload="auto" class="h-8 w-48" :src="msg.audioUrl" />
+                </div>
               </div>
             </div>
           </div>
@@ -445,7 +503,21 @@ async function onSidebarScroll() {
 
       <!-- Input bar -->
       <div class="border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-6 py-4">
-        <div class="flex gap-3 items-end">
+        <!-- Indicador de gravação -->
+        <div v-if="isRecording" class="flex items-center gap-3 mb-3">
+          <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+          <span class="text-sm text-slate-600 dark:text-slate-300">
+            Gravando... {{ formatRecordingTime(recordingSeconds) }}
+          </span>
+          <button
+            @click="stopRecording"
+            class="ml-auto flex-shrink-0 bg-red-500 hover:bg-red-600 text-white rounded-xl px-4 py-2 text-sm font-medium transition-colors"
+          >
+            Parar e Enviar
+          </button>
+        </div>
+
+        <div v-else class="flex gap-3 items-end">
           <textarea
             v-model="input"
             @keydown="handleKeydown"
@@ -455,6 +527,15 @@ async function onSidebarScroll() {
             class="flex-1 resize-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-50 transition-all"
             style="max-height: 120px; overflow-y: auto"
           />
+          <!-- Botão microfone -->
+          <button
+            @click="startRecording"
+            :disabled="chat.isLoading"
+            title="Gravar mensagem de voz"
+            class="flex-shrink-0 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-40 text-slate-600 dark:text-slate-300 rounded-xl px-4 py-3 text-sm transition-colors"
+          >
+            🎤
+          </button>
           <button
             @click="handleSend"
             :disabled="!input.trim() || chat.isLoading"

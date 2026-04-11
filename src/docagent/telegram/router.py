@@ -25,6 +25,7 @@ from docagent.atendimento.models import (
     CanalAtendimento,
     MensagemAtendimento,
     MensagemOrigem,
+    MensagemTipo,
 )
 from docagent.atendimento.sse import atendimento_lista_sse_manager, atendimento_sse_manager
 from docagent.auth.current_user import CurrentUser
@@ -248,6 +249,39 @@ async def _enviar_resposta_telegram(
             await client.post("/sendMessage", json={"chat_id": chat_id, "text": answer})
 
 
+async def _salvar_audio_local(audio_bytes: bytes) -> str:
+    """Salva bytes de áudio em data/audio/ e retorna 'local:{filename}'."""
+    import os
+    import uuid
+    audio_dir = os.path.join(os.getcwd(), "data", "audio")
+    os.makedirs(audio_dir, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.ogg"
+    filepath = os.path.join(audio_dir, filename)
+    with open(filepath, "wb") as f:
+        f.write(audio_bytes)
+    return f"local:{filename}"
+
+
+async def _enviar_audio_bytes_telegram(
+    bot_token: str,
+    chat_id: int,
+    audio_bytes: bytes,
+    text: str,
+    audio_config,
+) -> None:
+    """Envia bytes de áudio já gerados, evitando sintetizar duas vezes."""
+    from docagent.audio.models import ModoResposta
+    async with get_telegram_client(bot_token) as client:
+        await client.post(
+            "/sendVoice",
+            files={"voice": ("voice.ogg", audio_bytes, "audio/ogg")},
+            data={"chat_id": chat_id},
+        )
+    if audio_config and audio_config.modo_resposta != ModoResposta.AUDIO_APENAS.value:
+        async with get_telegram_client(bot_token) as client:
+            await client.post("/sendMessage", json={"chat_id": chat_id, "text": text})
+
+
 async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
     msg = update.message
     voice_or_audio = (msg.voice or msg.audio) if msg else None
@@ -262,6 +296,8 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
     chat_id_int = msg.chat.id
     nome_contato = msg.from_.first_name if msg.from_ else None
     conteudo = msg.text or ""
+    # media_ref para o áudio recebido (preenchido no bloco abaixo se for voz)
+    media_ref_contato: str | None = None
 
     # ── Caminho de áudio: STT antes do fluxo principal ───────────────────────
     audio_config = None
@@ -293,29 +329,10 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
         if not conteudo.strip():
             return
 
-        # Executa agente e responde diretamente (modo áudio)
-        async with AsyncSessionLocal() as db:
-            from sqlalchemy import select as _sel
-            inst_result = await db.execute(
-                _sel(TelegramInstancia).where(TelegramInstancia.bot_token == bot_token)
-            )
-            instancia = inst_result.scalar_one_or_none()
-            if not instancia or not instancia.agente_id:
-                return
-
-            from docagent.agente.models import Agente as _Agente
-            ag_result = await db.execute(
-                _sel(_Agente).where(_Agente.id == instancia.agente_id, _Agente.ativo.is_(True))
-            )
-            agente_obj = ag_result.scalar_one_or_none()
-            if not agente_obj:
-                return
-
-        session_id = f"telegram:{instancia.tenant_id}:{numero}"
-        answer = await _executar_agente_telegram(agente_obj, conteudo, session_id, instancia.tenant_id)
-        if answer:
-            await _enviar_resposta_telegram(bot_token, chat_id_int, answer, audio_config)
-        return
+        # Guarda referência para proxy de mídia: telegram:{token}:{file_id}
+        media_ref_contato = f"telegram:{bot_token}:{voice_or_audio.file_id}"
+        # conteudo agora contém a transcrição — cai no fluxo normal abaixo,
+        # que salva MensagemAtendimento, emite SSE e usa audio_config para TTS.
     # ─────────────────────────────────────────────────────────────────────────
 
     async with AsyncSessionLocal() as db:
@@ -341,7 +358,7 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
             # Modo direto: responde sem criar atendimento na fila
             await db.commit()
             if agente:
-                await _executar_e_responder_direto(instancia, agente, conteudo, session_id)
+                await _executar_e_responder_direto(instancia, agente, conteudo, session_id, audio_config)
             return
 
         # Upsert atendimento
@@ -369,10 +386,14 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
             await db.refresh(atendimento)
 
         # Salvar mensagem do contato
+        is_audio_msg = voice_or_audio is not None
+        conteudo_salvo = f"[Áudio] {conteudo}" if is_audio_msg else conteudo
         msg_contato = MensagemAtendimento(
             atendimento_id=atendimento.id,
             origem=MensagemOrigem.CONTATO,
-            conteudo=conteudo,
+            conteudo=conteudo_salvo,
+            tipo=MensagemTipo.AUDIO.value if is_audio_msg else MensagemTipo.TEXT.value,
+            media_ref=media_ref_contato,
         )
         db.add(msg_contato)
 
@@ -403,7 +424,9 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
     await atendimento_sse_manager.broadcast(atendimento_id, {
         "type": "NOVA_MENSAGEM",
         "origem": "CONTATO",
-        "conteudo": conteudo,
+        "conteudo": conteudo_salvo,
+        "tipo": MensagemTipo.AUDIO.value if is_audio_msg else MensagemTipo.TEXT.value,
+        "media_ref": media_ref_contato,
     })
     event_type = "NOVO_ATENDIMENTO" if is_novo else "ATENDIMENTO_ATUALIZADO"
     await atendimento_lista_sse_manager.broadcast(tenant_id, {
@@ -414,7 +437,7 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
     if atendimento_status == AtendimentoStatus.HUMANO or not agente_obj:
         return
 
-    await _executar_agente_e_salvar(instancia, agente_obj, conteudo, session_id, atendimento_id, numero)
+    await _executar_agente_e_salvar(instancia, agente_obj, conteudo, session_id, atendimento_id, numero, audio_config)
 
 
 async def _executar_agente_e_salvar(
@@ -424,6 +447,7 @@ async def _executar_agente_e_salvar(
     session_id: str,
     atendimento_id: int,
     numero: str,
+    audio_config=None,
 ) -> None:
     sessions = get_session_manager()
     state = sessions.get(session_id)
@@ -499,12 +523,25 @@ async def _executar_agente_e_salvar(
                     await _AtSvc(db).sinalizar_humano(_at)
                     await db.commit()
 
+    # Gerar áudio TTS (antes de salvar, para ter o media_ref)
+    from docagent.atendimento.models import MensagemTipo
+    tts_media_ref: str | None = None
+    if audio_config is not None and audio_config.tts_habilitado:
+        try:
+            from docagent.audio.services import AudioService
+            tts_bytes = await AudioService.sintetizar(answer, audio_config)
+            tts_media_ref = await _salvar_audio_local(tts_bytes)
+        except Exception:
+            _log.exception("Erro ao gerar TTS para media_ref — resposta será só texto")
+
     # Salvar resposta do agente
     async with AsyncSessionLocal() as db:
         msg_agente = MensagemAtendimento(
             atendimento_id=atendimento_id,
             origem=MensagemOrigem.AGENTE,
             conteudo=answer,
+            tipo=MensagemTipo.AUDIO.value if tts_media_ref else MensagemTipo.TEXT.value,
+            media_ref=tts_media_ref,
         )
         db.add(msg_agente)
         await db.commit()
@@ -513,13 +550,24 @@ async def _executar_agente_e_salvar(
         "type": "NOVA_MENSAGEM",
         "origem": "AGENTE",
         "conteudo": answer,
+        "tipo": MensagemTipo.AUDIO.value if tts_media_ref else MensagemTipo.TEXT.value,
+        "media_ref": tts_media_ref,
     })
 
-    # Enviar resposta via Telegram Bot API
+    # Enviar resposta via Telegram Bot API (com TTS se audio_config definido)
     try:
         chat_id = int(numero)
-        async with get_telegram_client(instancia.bot_token) as client:
-            await client.post("/sendMessage", json={"chat_id": chat_id, "text": answer})
+        # Se já geramos o áudio acima, reutiliza os bytes; senão delega ao _enviar
+        if tts_media_ref:
+            import os
+            filename = tts_media_ref.split(":", 1)[1]
+            audio_dir = os.path.join(os.getcwd(), "data", "audio")
+            filepath = os.path.join(audio_dir, filename)
+            with open(filepath, "rb") as f:
+                cached_bytes = f.read()
+            await _enviar_audio_bytes_telegram(instancia.bot_token, chat_id, cached_bytes, answer, audio_config)
+        else:
+            await _enviar_resposta_telegram(instancia.bot_token, chat_id, answer, audio_config)
     except (ValueError, Exception):
         pass
 
@@ -529,6 +577,7 @@ async def _executar_e_responder_direto(
     agente_obj: Agente,
     conteudo: str,
     session_id: str,
+    audio_config=None,
 ) -> None:
     """Executa agente e responde diretamente sem criar atendimento."""
     sessions = get_session_manager()
@@ -557,7 +606,6 @@ async def _executar_e_responder_direto(
 
     try:
         chat_id = int(session_id.rsplit(":", 1)[-1])
-        async with get_telegram_client(instancia.bot_token) as client:
-            await client.post("/sendMessage", json={"chat_id": chat_id, "text": answer})
+        await _enviar_resposta_telegram(instancia.bot_token, chat_id, answer, audio_config)
     except (ValueError, Exception):
         pass

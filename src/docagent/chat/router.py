@@ -22,7 +22,7 @@ from docagent.conversa.services import ConversaService
 from docagent.database import AsyncDBSession, AsyncSessionLocal
 from docagent.dependencies import get_session_manager
 from docagent.mcp_server.services import McpServiceDep, load_mcp_tools_for_skills
-from docagent.chat.schemas import ChatRequest, HealthResponse
+from docagent.chat.schemas import ChatRequest, HealthResponse, SttResponse, TtsRequest
 from docagent.chat.service import ChatService
 from docagent.chat.session import SessionManager
 
@@ -230,6 +230,45 @@ async def chat_sync(
         "session_id": request.session_id,
         "agent_id": request.agent_id,
     }
+
+
+from fastapi import File, UploadFile  # noqa: E402
+
+
+@router.post("/stt", response_model=SttResponse)
+async def stt_upload(
+    current_user: CurrentUser,
+    db: AsyncDBSession,
+    audio: UploadFile = File(...),
+    agent_id: int | None = None,
+):
+    """Transcreve áudio (ogg/mp3/wav) enviado pelo browser. Usa AudioConfig do tenant."""
+    from docagent.audio.services import AudioService
+    audio_config = await AudioService.resolver_config(agent_id, current_user.tenant_id, db)
+    if not audio_config.stt_habilitado:
+        raise HTTPException(status_code=400, detail="STT não habilitado para este agente/tenant")
+    audio_bytes = await audio.read()
+    transcription = await AudioService.transcrever(audio_bytes, audio_config)
+    return SttResponse(transcription=transcription.strip())
+
+
+@router.post("/tts")
+async def text_to_speech(
+    current_user: CurrentUser,
+    db: AsyncDBSession,
+    body: TtsRequest,
+):
+    """Sintetiza texto em áudio OGG. Usa AudioConfig do tenant."""
+    from docagent.audio.services import AudioService
+    audio_config = await AudioService.resolver_config(body.agent_id, current_user.tenant_id, db)
+    if not audio_config.tts_habilitado:
+        raise HTTPException(status_code=400, detail="TTS não habilitado para este agente/tenant")
+    audio_bytes = await AudioService.sintetizar(body.text, audio_config)
+    return StreamingResponse(
+        iter([audio_bytes]),
+        media_type="audio/ogg",
+        headers={"Content-Length": str(len(audio_bytes))},
+    )
 
 
 @router.delete("/session/{session_id}")

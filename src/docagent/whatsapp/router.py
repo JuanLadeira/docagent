@@ -29,7 +29,7 @@ from docagent.agente.models import Agente
 from docagent.agent.configurable import ConfigurableAgent
 from docagent.agent.registry import AgentConfig
 from docagent.agent.base import BaseAgent
-from docagent.atendimento.models import Atendimento, AtendimentoStatus, Contato, MensagemAtendimento, MensagemOrigem
+from docagent.atendimento.models import Atendimento, AtendimentoStatus, Contato, MensagemAtendimento, MensagemOrigem, MensagemTipo
 from docagent.atendimento.sse import atendimento_lista_sse_manager, atendimento_sse_manager
 from docagent.auth.current_user import CurrentUser
 from docagent.database import AsyncSessionLocal
@@ -470,6 +470,30 @@ async def _enviar_resposta_whatsapp(
         await _enviar_texto_evolution(instance_name, numero, answer, settings)
 
 
+async def _enviar_audio_bytes_whatsapp(
+    instance_name: str,
+    numero: str,
+    audio_bytes: bytes,
+    answer: str,
+    audio_config,
+) -> None:
+    """Envia bytes de áudio já gerados para o WhatsApp, evitando sintetizar duas vezes."""
+    from docagent.audio.models import ModoResposta
+    settings = Settings()
+    b64_audio = base64.b64encode(audio_bytes).decode()
+    async with httpx.AsyncClient(
+        base_url=settings.EVOLUTION_API_URL,
+        headers={"apikey": settings.EVOLUTION_API_KEY},
+        timeout=60.0,
+    ) as client:
+        await client.post(
+            f"/message/sendWhatsAppAudio/{instance_name}",
+            json={"number": numero, "audio": b64_audio, "encoding": True},
+        )
+    if audio_config and audio_config.modo_resposta != ModoResposta.AUDIO_APENAS.value:
+        await _enviar_texto_evolution(instance_name, numero, answer, settings)
+
+
 async def _enviar_texto_evolution(instance_name: str, numero: str, answer: str, settings: Settings) -> None:
     typing_delay_ms = max(1500, min(5000, len(answer) * 30))
     async with httpx.AsyncClient(
@@ -528,6 +552,7 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
 
         # ── Caminho de áudio: STT antes de seguir ────────────────────────────
         audio_config = None
+        media_ref_contato: str | None = None
         if audio_message and not conteudo:
             async with AsyncSessionLocal() as db_audio:
                 inst_result = await db_audio.execute(
@@ -554,6 +579,13 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
 
             if not conteudo.strip():
                 return
+
+            # Salva áudio recebido em disco para o player da UI
+            from docagent.telegram.router import _salvar_audio_local
+            try:
+                media_ref_contato = await _salvar_audio_local(audio_bytes)
+            except Exception:
+                log.warning("Não foi possível salvar áudio WhatsApp em disco")
         # ─────────────────────────────────────────────────────────────────────
 
         # Buscar instância, agente e gerenciar atendimento
@@ -608,10 +640,14 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
                 await db.refresh(atendimento)
 
             # Salvar mensagem do contato
+            is_audio_msg = audio_message is not None
+            conteudo_salvo = f"[Áudio] {conteudo}" if is_audio_msg else conteudo
             msg_contato = MensagemAtendimento(
                 atendimento_id=atendimento.id,
                 origem=MensagemOrigem.CONTATO,
-                conteudo=conteudo,
+                conteudo=conteudo_salvo,
+                tipo=MensagemTipo.AUDIO.value if is_audio_msg else MensagemTipo.TEXT.value,
+                media_ref=media_ref_contato,
             )
             db.add(msg_contato)
 
@@ -642,7 +678,9 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
         await atendimento_sse_manager.broadcast(atendimento_id, {
             "type": "NOVA_MENSAGEM",
             "origem": "CONTATO",
-            "conteudo": conteudo,
+            "conteudo": conteudo_salvo,
+            "tipo": MensagemTipo.AUDIO.value if is_audio_msg else MensagemTipo.TEXT.value,
+            "media_ref": media_ref_contato,
         })
 
         # Broadcast lista SSE (novo ou atualizado)
@@ -669,18 +707,45 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
             if not answer:
                 return
 
+            # Gerar TTS e salvar em disco para o player
+            tts_media_ref: str | None = None
+            if audio_config is not None and audio_config.tts_habilitado:
+                try:
+                    from docagent.audio.services import AudioService
+                    from docagent.telegram.router import _salvar_audio_local
+                    tts_bytes = await AudioService.sintetizar(answer, audio_config)
+                    tts_media_ref = await _salvar_audio_local(tts_bytes)
+                except Exception:
+                    log.exception("Erro ao gerar TTS WhatsApp para media_ref")
+
             async with AsyncSessionLocal() as db:
                 db.add(MensagemAtendimento(
                     atendimento_id=atendimento_id,
                     origem=MensagemOrigem.AGENTE,
                     conteudo=answer,
+                    tipo=MensagemTipo.AUDIO.value if tts_media_ref else MensagemTipo.TEXT.value,
+                    media_ref=tts_media_ref,
                 ))
                 await db.commit()
 
             await atendimento_sse_manager.broadcast(atendimento_id, {
-                "type": "NOVA_MENSAGEM", "origem": "AGENTE", "conteudo": answer,
+                "type": "NOVA_MENSAGEM",
+                "origem": "AGENTE",
+                "conteudo": answer,
+                "tipo": MensagemTipo.AUDIO.value if tts_media_ref else MensagemTipo.TEXT.value,
+                "media_ref": tts_media_ref,
             })
-            await _enviar_resposta_whatsapp(evento.instance, numero, answer, audio_config)
+
+            # Envia para WhatsApp (reutiliza bytes do TTS se já gerados)
+            if tts_media_ref:
+                import os
+                filename = tts_media_ref.split(":", 1)[1]
+                filepath = os.path.join(os.getcwd(), "data", "audio", filename)
+                with open(filepath, "rb") as f:
+                    cached_bytes = f.read()
+                await _enviar_audio_bytes_whatsapp(evento.instance, numero, cached_bytes, answer, audio_config)
+            else:
+                await _enviar_resposta_whatsapp(evento.instance, numero, answer, audio_config)
             return
         # ─────────────────────────────────────────────────────────────────────
 

@@ -54,6 +54,48 @@ export const docagentApi = {
   },
 
   /**
+   * Transcreve um Blob de áudio gravado no browser via STT do backend.
+   * Retorna o texto transcrito.
+   */
+  async transcribeAudio(audioBlob: Blob, agentId?: string | null): Promise<string> {
+    const token = sessionStorage.getItem('token') ?? ''
+    const form = new FormData()
+    form.append('audio', audioBlob, 'recording.ogg')
+    if (agentId && !isNaN(Number(agentId))) {
+      form.append('agent_id', agentId)
+    }
+    const res = await fetch('/stt', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    })
+    if (!res.ok) throw new Error(`STT error: ${res.status}`)
+    const data = await res.json()
+    return data.transcription ?? ''
+  },
+
+  /**
+   * Sintetiza texto em áudio OGG e retorna um blob URL reproduzível.
+   * Chama TTS do backend com a AudioConfig do tenant/agente.
+   */
+  async synthesizeText(text: string, agentId?: string | null): Promise<string> {
+    const token = sessionStorage.getItem('token') ?? ''
+    const body: Record<string, unknown> = { text }
+    if (agentId && !isNaN(Number(agentId))) body.agent_id = Number(agentId)
+    const res = await fetch('/tts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(`TTS error: ${res.status}`)
+    const blob = await res.blob()
+    return URL.createObjectURL(blob)
+  },
+
+  /**
    * Inicia streaming SSE via fetch (Axios nao suporta ReadableStream em POST).
    * Retorna um AsyncGenerator que emite SseEvent conforme chegam do servidor.
    * conversa_id opcional: retoma conversa existente; se null, cria nova.

@@ -93,6 +93,11 @@ class Atendimento(Base):
     )
 
 
+class MensagemTipo(str, enum.Enum):
+    TEXT = "text"
+    AUDIO = "audio"
+
+
 class MensagemAtendimento(Base):
     __tablename__ = "mensagem_atendimento"
 
@@ -103,4 +108,6 @@ class MensagemAtendimento(Base):
         Enum(MensagemOrigem, name="mensagemorigem"), nullable=False
     )
     conteudo: Mapped[str] = mapped_column(Text, nullable=False)
+    tipo: Mapped[str] = mapped_column(String(10), nullable=False, default=MensagemTipo.TEXT.value)
+    media_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
     atendimento: Mapped["Atendimento"] = relationship(back_populates="mensagens")

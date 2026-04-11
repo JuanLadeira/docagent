@@ -1,0 +1,354 @@
+// DocAgent / z3ndocs — Database Schema
+// Gerado em: 2026-04-11
+// Visualizar em: https://dbdiagram.io
+//
+// Módulos:
+//   Core SaaS       → tenant, usuario, admin
+//   Agentes & RAG   → agente, documento
+//   Canais          → whatsapp_instancia, telegram_instancia
+//   Atendimento     → atendimento, mensagem_atendimento, contato
+//   Chat (IA)       → conversa, mensagem_conversa
+//   Billing         → planos, assinatura
+//   MCP             → mcp_server, mcp_tool
+//   Vagas           → candidatos, pipeline_runs, vagas, candidaturas
+//   Áudio           → audio_config
+//   Sistema         → system_config
+
+// ─────────────────────────────────────────────────────────────
+// CORE SAAS
+// ─────────────────────────────────────────────────────────────
+
+Table tenant {
+  id            int           [pk, increment]
+  nome          varchar(100)  [not null]
+  descricao     varchar(500)
+  llm_provider  varchar(50)
+  llm_model     varchar(100)
+  llm_api_key   varchar(500)
+  created_at    datetime      [not null]
+  updated_at    datetime      [not null]
+}
+
+Table usuario {
+  id         int           [pk, increment]
+  tenant_id  int           [not null, ref: > tenant.id]
+  username   varchar(50)   [not null, unique]
+  email      varchar(100)  [not null, unique]
+  password   varchar(255)  [not null]
+  nome       varchar(100)  [not null]
+  ativo      boolean       [not null, default: true]
+  role       varchar(10)   [not null, note: 'OWNER | MEMBER']
+  created_at datetime      [not null]
+  updated_at datetime      [not null]
+}
+
+Table admin {
+  id         int           [pk, increment]
+  username   varchar(50)   [not null, unique]
+  email      varchar(100)  [not null, unique]
+  password   varchar(255)  [not null]
+  nome       varchar(100)  [not null]
+  ativo      boolean       [not null, default: true]
+  created_at datetime      [not null]
+  updated_at datetime      [not null]
+
+  Note: 'Administrador global — separado dos usuários de tenant'
+}
+
+// ─────────────────────────────────────────────────────────────
+// AGENTES & RAG
+// ─────────────────────────────────────────────────────────────
+
+Table agente {
+  id            int           [pk, increment]
+  tenant_id     int           [not null, ref: > tenant.id]
+  nome          varchar(100)  [not null]
+  descricao     varchar(500)
+  system_prompt text
+  skill_names   json          [not null, note: 'ex: ["rag_search","web_search","mcp:server1:tool"]']
+  ativo         boolean       [not null, default: true]
+  created_at    datetime      [not null]
+  updated_at    datetime      [not null]
+}
+
+Table documento {
+  id         int           [pk, increment]
+  agente_id  int           [not null, ref: > agente.id]
+  filename   varchar(255)  [not null]
+  chunks     int           [not null, default: 0]
+  created_at datetime      [not null]
+  updated_at datetime      [not null]
+
+  Note: 'PDF indexado no ChromaDB para um agente específico'
+}
+
+// ─────────────────────────────────────────────────────────────
+// CANAIS DE ATENDIMENTO
+// ─────────────────────────────────────────────────────────────
+
+Table whatsapp_instancia {
+  id             int           [pk, increment]
+  tenant_id      int           [not null, ref: > tenant.id]
+  agente_id      int           [ref: > agente.id, note: 'SET NULL on delete']
+  instance_name  varchar(100)  [not null, unique]
+  status         varchar(20)   [not null, note: 'CRIADA | CONECTANDO | CONECTADA | DESCONECTADA']
+  created_at     datetime      [not null]
+  updated_at     datetime      [not null]
+}
+
+Table telegram_instancia {
+  id                   int           [pk, increment]
+  tenant_id            int           [not null, ref: > tenant.id]
+  agente_id            int           [ref: > agente.id, note: 'SET NULL on delete']
+  bot_token            varchar(200)  [not null, unique]
+  bot_username         varchar(100)
+  webhook_configured   boolean       [not null, default: false]
+  cria_atendimentos    boolean       [not null, default: true, note: 'false = bot direto sem fila']
+  status               varchar(10)   [not null, note: 'ATIVA | INATIVA']
+  created_at           datetime      [not null]
+  updated_at           datetime      [not null]
+}
+
+// ─────────────────────────────────────────────────────────────
+// ATENDIMENTO (WhatsApp / Telegram)
+// ─────────────────────────────────────────────────────────────
+
+Table contato {
+  id             int           [pk, increment]
+  tenant_id      int           [not null, ref: > tenant.id]
+  instancia_id   int           [not null, ref: > whatsapp_instancia.id]
+  numero         varchar(50)   [not null]
+  nome           varchar(100)  [not null]
+  email          varchar(100)
+  notas          text
+  created_at     datetime      [not null]
+  updated_at     datetime      [not null]
+
+  indexes {
+    (numero, tenant_id, instancia_id) [unique, name: 'uq_contato_numero_tenant_instancia']
+  }
+}
+
+Table atendimento {
+  id                     int           [pk, increment]
+  tenant_id              int           [not null, ref: > tenant.id]
+  instancia_id           int           [ref: > whatsapp_instancia.id, note: 'SET NULL on delete']
+  telegram_instancia_id  int           [ref: > telegram_instancia.id, note: 'SET NULL on delete']
+  contato_id             int           [ref: > contato.id, note: 'SET NULL on delete']
+  assumido_por_id        int           [ref: > usuario.id, note: 'SET NULL on delete']
+  numero                 varchar(50)   [not null]
+  nome_contato           varchar(100)
+  canal                  varchar(10)   [not null, note: 'WHATSAPP | TELEGRAM']
+  status                 varchar(10)   [not null, note: 'ATIVO | HUMANO | ENCERRADO']
+  prioridade             varchar(10)   [not null, default: 'NORMAL', note: 'NORMAL | ALTA | URGENTE']
+  assumido_por_nome      varchar(100)
+  created_at             datetime      [not null]
+  updated_at             datetime      [not null]
+}
+
+Table mensagem_atendimento {
+  id               int       [pk, increment]
+  atendimento_id   int       [not null, ref: > atendimento.id]
+  origem           varchar(10) [not null, note: 'CONTATO | AGENTE | OPERADOR']
+  conteudo         text      [not null]
+  created_at       datetime  [not null]
+  updated_at       datetime  [not null]
+}
+
+// ─────────────────────────────────────────────────────────────
+// CHAT / HISTÓRICO DE CONVERSAS (IA direta — sem atendimento)
+// ─────────────────────────────────────────────────────────────
+
+Table conversa {
+  id          int           [pk, increment]
+  tenant_id   int           [not null, ref: > tenant.id]
+  usuario_id  int           [not null, ref: > usuario.id]
+  agente_id   int           [not null, ref: > agente.id]
+  titulo      varchar(200)  [note: 'gerado pelo LLM após o 1º turn']
+  arquivada   boolean       [not null, default: false]
+  created_at  datetime      [not null]
+  updated_at  datetime      [not null]
+
+  indexes {
+    (usuario_id, updated_at) [name: 'ix_conversa_usuario_updated']
+  }
+}
+
+Table mensagem_conversa {
+  id              int       [pk, increment]
+  conversa_id     int       [not null, ref: > conversa.id]
+  role            varchar(20) [not null, note: 'user | assistant | tool | system']
+  conteudo        text      [not null]
+  tool_name       varchar(100)
+  tokens_entrada  int
+  tokens_saida    int
+  created_at      datetime  [not null]
+  updated_at      datetime  [not null]
+
+  indexes {
+    (conversa_id, created_at) [name: 'ix_mensagem_conversa_id']
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// BILLING
+// ─────────────────────────────────────────────────────────────
+
+Table planos {
+  id                  int              [pk, increment]
+  nome                varchar(100)     [not null, unique]
+  descricao           varchar(500)
+  limite_agentes      int              [not null, default: 1]
+  limite_documentos   int              [not null, default: 10]
+  limite_sessoes      int              [not null, default: 5]
+  ciclo_dias          int              [not null, default: 30]
+  preco_mensal        decimal(10,2)    [not null, default: 0.00]
+  ativo               boolean          [not null, default: true]
+  created_at          datetime         [not null]
+  updated_at          datetime         [not null]
+}
+
+Table assinatura {
+  id                        int       [pk, increment]
+  tenant_id                 int       [not null, unique, ref: > tenant.id]
+  plano_id                  int       [not null, ref: > planos.id]
+  ativo                     boolean   [not null, default: true]
+  data_inicio               datetime  [not null]
+  data_proxima_renovacao    datetime  [not null]
+  stripe_subscription_id    varchar(255)
+  created_at                datetime  [not null]
+  updated_at                datetime  [not null]
+}
+
+// ─────────────────────────────────────────────────────────────
+// MCP — Model Context Protocol
+// ─────────────────────────────────────────────────────────────
+
+Table mcp_server {
+  id         int           [pk, increment]
+  nome       varchar(255)  [not null]
+  descricao  text
+  command    varchar(255)  [not null]
+  args       json          [not null, note: 'lista de argumentos CLI']
+  env        json          [not null, note: 'variáveis de ambiente']
+  ativo      boolean       [not null, default: true]
+  created_at datetime      [not null]
+  updated_at datetime      [not null]
+}
+
+Table mcp_tool {
+  id          int           [pk, increment]
+  server_id   int           [not null, ref: > mcp_server.id]
+  tool_name   varchar(255)  [not null]
+  description text
+  created_at  datetime      [not null]
+  updated_at  datetime      [not null]
+}
+
+// ─────────────────────────────────────────────────────────────
+// VAGAS — Pipeline multi-agente
+// ─────────────────────────────────────────────────────────────
+
+Table candidatos {
+  id              int           [pk, increment]
+  tenant_id       int           [not null, ref: > tenant.id]
+  usuario_id      int           [not null, ref: > usuario.id]
+  nome            varchar(200)
+  email           varchar(200)
+  telefone        varchar(50)
+  skills          json
+  experiencias    json
+  formacao        json
+  cargo_desejado  varchar(200)
+  resumo          text
+  cv_filename     varchar(500)
+  cv_texto        text
+  created_at      datetime      [not null]
+  updated_at      datetime      [not null]
+}
+
+Table pipeline_runs {
+  id                    int         [pk, increment]
+  tenant_id             int         [not null, ref: > tenant.id]
+  usuario_id            int         [not null, ref: > usuario.id]
+  candidato_id          int         [ref: > candidatos.id, note: 'SET NULL on delete']
+  status                varchar(50) [not null, note: 'PENDENTE | ANALISANDO_CV | BUSCANDO_VAGAS | PERSONALIZANDO | REGISTRANDO | CONCLUIDO | ERRO']
+  etapa_atual           varchar(100)
+  erro                  text
+  vagas_encontradas     int         [not null, default: 0]
+  candidaturas_criadas  int         [not null, default: 0]
+  created_at            datetime    [not null]
+  updated_at            datetime    [not null]
+}
+
+Table vagas {
+  id                       int            [pk, increment]
+  tenant_id                int            [not null, ref: > tenant.id]
+  pipeline_run_id          int            [not null, ref: > pipeline_runs.id]
+  titulo                   varchar(300)
+  empresa                  varchar(200)
+  localizacao              varchar(200)
+  descricao                text
+  requisitos               text
+  url                      varchar(1000)
+  fonte                    varchar(50)    [note: 'DUCKDUCKGO | GUPY | LINKEDIN | INDEED']
+  match_score              float
+  candidatura_simplificada boolean        [not null, default: false]
+  raw_data                 json
+  created_at               datetime       [not null]
+  updated_at               datetime       [not null]
+}
+
+Table candidaturas {
+  id                    int         [pk, increment]
+  tenant_id             int         [not null, ref: > tenant.id]
+  pipeline_run_id       int         [not null, ref: > pipeline_runs.id]
+  vaga_id               int         [not null, ref: > vagas.id]
+  candidato_id          int         [not null, ref: > candidatos.id]
+  resumo_personalizado  text
+  carta_apresentacao    text
+  status                varchar(50) [note: 'AGUARDANDO_ENVIO | ENVIADA | REJEITADA']
+  simplificada          boolean     [not null, default: false]
+  created_at            datetime    [not null]
+  updated_at            datetime    [not null]
+}
+
+// ─────────────────────────────────────────────────────────────
+// ÁUDIO — STT + TTS
+// ─────────────────────────────────────────────────────────────
+
+Table audio_config {
+  id                  int           [pk, increment]
+  tenant_id           int           [not null, ref: > tenant.id]
+  agente_id           int           [ref: > agente.id, note: 'NULL = config padrão do tenant']
+  stt_habilitado      boolean       [not null, default: false]
+  stt_provider        varchar(50)   [not null, note: 'faster_whisper | openai']
+  stt_modelo          varchar(50)   [not null, default: 'base']
+  tts_habilitado      boolean       [not null, default: false]
+  tts_provider        varchar(50)   [not null, note: 'piper | openai | elevenlabs']
+  piper_voz           varchar(200)  [not null, default: 'pt_BR-faber-medium']
+  openai_tts_voz      varchar(50)   [not null, default: 'nova']
+  elevenlabs_voice_id varchar(200)
+  elevenlabs_api_key  text
+  modo_resposta       varchar(50)   [not null, note: 'audio_apenas | texto_apenas | audio_e_texto']
+  created_at          datetime      [not null]
+  updated_at          datetime      [not null]
+
+  indexes {
+    (tenant_id, agente_id) [unique, name: 'uq_audio_config_tenant_agente']
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// SISTEMA
+// ─────────────────────────────────────────────────────────────
+
+Table system_config {
+  id         int           [pk, increment]
+  key        varchar(100)  [not null, unique]
+  value      varchar(500)
+  created_at datetime      [not null]
+  updated_at datetime      [not null]
+
+  Note: 'Configurações globais chave-valor. Ex: llm_mode = local | api'
+}

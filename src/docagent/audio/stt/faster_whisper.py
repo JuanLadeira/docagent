@@ -35,7 +35,9 @@ class FasterWhisperSTT:
 
     async def transcrever(self, audio_bytes: bytes, modelo: str) -> str:
         model = self.get_model(modelo)
-        return await asyncio.to_thread(self._transcrever_sync, model, audio_bytes)
+        texto = await asyncio.to_thread(self._transcrever_sync, model, audio_bytes)
+        log.info("audio.stt: transcrição concluída (%d chars): %.120s", len(texto), texto)
+        return texto
 
     @staticmethod
     def _transcrever_sync(model, audio_bytes: bytes) -> str:
@@ -43,7 +45,18 @@ class FasterWhisperSTT:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
         try:
-            segments, _ = model.transcribe(tmp_path, language="pt")
-            return "".join(seg.text for seg in segments)
+            segments, info = model.transcribe(
+                tmp_path,
+                language="pt",
+                beam_size=5,
+                vad_filter=True,           # remove silêncio/ruído antes de transcrever
+                vad_parameters={"min_silence_duration_ms": 500},
+            )
+            texto = "".join(seg.text for seg in segments).strip()
+            log.info(
+                "audio.stt: idioma detectado='%s' (%.0f%%), duracao=%.1fs",
+                info.language, info.language_probability * 100, info.duration,
+            )
+            return texto
         finally:
             os.unlink(tmp_path)

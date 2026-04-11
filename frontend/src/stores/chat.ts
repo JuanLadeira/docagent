@@ -6,6 +6,7 @@ import { api, type Conversa } from '@/api/client'
 export interface Message {
   role: 'user' | 'assistant'
   content: string
+  audioUrl?: string   // blob URL: gravação do usuário ou TTS do agente (revogado após uso)
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -61,6 +62,70 @@ export const useChatStore = defineStore('chat', () => {
       isLoading.value = false
       currentStep.value = null
       // Atualiza a lista de conversas após cada mensagem
+      await fetchConversas(true)
+    }
+  }
+
+  /**
+   * Transcreve o Blob de áudio, envia como mensagem e pede TTS para a resposta.
+   * O user message recebe o audioUrl da gravação; o assistant message recebe o TTS.
+   */
+  async function sendAudioMessage(audioBlob: Blob) {
+    isLoading.value = true
+    currentStep.value = null
+
+    // URL local para reproduzir a gravação do próprio usuário
+    const recordingUrl = URL.createObjectURL(audioBlob)
+
+    try {
+      const transcription = await docagentApi.transcribeAudio(audioBlob, selectedAgentId.value)
+      if (!transcription) {
+        isLoading.value = false
+        return
+      }
+
+      // Adiciona a mensagem do usuário com o blob de áudio
+      messages.value.push({ role: 'user', content: transcription, audioUrl: recordingUrl })
+
+      const stream = docagentApi.streamChat(
+        transcription,
+        sessionId.value,
+        selectedAgentId.value,
+        conversaId.value,
+      )
+
+      let assistantContent = ''
+      for await (const event of stream) {
+        if (event.type === 'meta') {
+          conversaId.value = event.conversa_id
+        } else if (event.type === 'step') {
+          currentStep.value = event.content
+        } else if (event.type === 'answer') {
+          currentStep.value = null
+          assistantContent = event.content
+          messages.value.push({ role: 'assistant', content: assistantContent })
+        } else if (event.type === 'done') {
+          break
+        }
+      }
+
+      // Gera TTS para a resposta do agente e atualiza o audioUrl da última mensagem
+      if (assistantContent) {
+        try {
+          const ttsUrl = await docagentApi.synthesizeText(assistantContent, selectedAgentId.value)
+          const last = messages.value[messages.value.length - 1]
+          if (last?.role === 'assistant') last.audioUrl = ttsUrl
+        } catch {
+          // TTS opcional — silencioso se falhar (ex: TTS desabilitado)
+        }
+      }
+    } catch (err) {
+      URL.revokeObjectURL(recordingUrl)
+      const msg = err instanceof Error ? err.message : 'Erro ao processar áudio'
+      messages.value.push({ role: 'assistant', content: `⚠️ ${msg}` })
+    } finally {
+      isLoading.value = false
+      currentStep.value = null
       await fetchConversas(true)
     }
   }
@@ -157,6 +222,7 @@ export const useChatStore = defineStore('chat', () => {
     conversasHasMore,
     conversasLoading,
     sendMessage,
+    sendAudioMessage,
     uploadDocument,
     resetSession,
     fetchConversas,
