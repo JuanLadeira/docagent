@@ -25,6 +25,7 @@ export interface UploadResponse {
 export type SseEvent =
   | { type: 'step'; content: string }
   | { type: 'answer'; content: string }
+  | { type: 'meta'; conversa_id: number }
   | { type: 'done' }
 
 // ── Endpoints ────────────────────────────────────────────────────────────────
@@ -55,20 +56,24 @@ export const docagentApi = {
   /**
    * Inicia streaming SSE via fetch (Axios nao suporta ReadableStream em POST).
    * Retorna um AsyncGenerator que emite SseEvent conforme chegam do servidor.
+   * conversa_id opcional: retoma conversa existente; se null, cria nova.
    */
   async *streamChat(
     question: string,
     sessionId: string,
     agentId: string,
+    conversaId?: number | null,
   ): AsyncGenerator<SseEvent> {
     const token = sessionStorage.getItem('token') ?? ''
+    const body: Record<string, unknown> = { question, session_id: sessionId, agent_id: agentId }
+    if (conversaId != null) body.conversa_id = conversaId
     const res = await fetch('/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ question, session_id: sessionId, agent_id: agentId }),
+      body: JSON.stringify(body),
     })
 
     if (!res.ok) throw new Error(`Chat error: ${res.status}`)

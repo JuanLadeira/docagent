@@ -10,6 +10,7 @@ class ChatRequest(BaseModel):
     question: str
     session_id: str = "default"
     agent_id: str = "1"
+    conversa_id: int | None = None
 
     @field_validator("question")
     @classmethod

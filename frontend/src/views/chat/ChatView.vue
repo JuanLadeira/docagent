@@ -14,14 +14,18 @@ const isUploading = ref(false)
 const documentos = ref<Documento[]>([])
 const loadingDocs = ref(false)
 const docError = ref('')
+const sidebarTab = ref<'conversas' | 'docs'>('conversas')
+const conversasSidebarEl = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
   await agentsStore.fetchIfNeeded()
   if (chat.selectedAgentId) loadDocumentos(chat.selectedAgentId)
+  await chat.fetchConversas(true)
 })
 
 watch(() => chat.selectedAgentId, (id) => {
   if (id) loadDocumentos(id)
+  chat.fetchConversas(true)
 })
 
 watch(
@@ -52,6 +56,30 @@ function handleKeydown(e: KeyboardEvent) {
 function selectAgent(id: string) {
   chat.selectedAgentId = id
   loadDocumentos(id)
+}
+
+async function selectAgentFromDocs(id: string) {
+  chat.selectedAgentId = id
+  loadDocumentos(id)
+
+  const numericId = Number(id)
+  if (!numericId) return
+
+  // Busca a conversa mais recente desse agente
+  try {
+    const res = await api.listConversas({ agente_id: numericId, arquivada: false, page: 1, page_size: 1 })
+    if (res.data.items.length > 0) {
+      await chat.carregarConversa(res.data.items[0].id)
+    } else {
+      await chat.resetSession()
+    }
+    await chat.fetchConversas(true)
+  } catch {
+    await chat.resetSession()
+  }
+
+  // Vai para a aba de conversas para mostrar o resultado
+  sidebarTab.value = 'conversas'
 }
 
 async function loadDocumentos(agentId: string) {
@@ -104,129 +132,244 @@ async function removerDocumento(docId: number) {
 function triggerUpload() {
   fileInputEl.value?.click()
 }
+
+// ── Conversas ─────────────────────────────────────────────────────────────────
+
+function groupConversasByDate(conversas: typeof chat.conversas) {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1)
+  const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7)
+
+  const groups: { label: string; items: typeof conversas }[] = [
+    { label: 'Hoje', items: [] },
+    { label: 'Ontem', items: [] },
+    { label: 'Esta semana', items: [] },
+    { label: 'Mais antigas', items: [] },
+  ]
+
+  for (const c of conversas) {
+    const d = new Date(c.updated_at)
+    const day = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+    if (day >= today) groups[0].items.push(c)
+    else if (day >= yesterday) groups[1].items.push(c)
+    else if (day >= weekAgo) groups[2].items.push(c)
+    else groups[3].items.push(c)
+  }
+
+  return groups.filter(g => g.items.length > 0)
+}
+
+async function onSidebarScroll() {
+  const el = conversasSidebarEl.value
+  if (!el) return
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40 && chat.conversasHasMore && !chat.conversasLoading) {
+    await chat.fetchConversas()
+  }
+}
 </script>
 
 <template>
   <div class="flex h-full bg-slate-50 dark:bg-slate-900">
     <!-- ─── Sidebar ─────────────────────────────────────────────────────── -->
     <aside class="w-72 flex-shrink-0 flex flex-col border-r border-slate-700" style="background: #0f172a">
-      <!-- Header -->
-      <div class="p-5 border-b border-slate-700">
-        <h2 class="text-white font-semibold text-sm">Painel do Agente</h2>
+      <!-- Header with tabs -->
+      <div class="p-4 border-b border-slate-700">
+        <div class="flex gap-1 bg-slate-800 rounded-lg p-1">
+          <button
+            @click="sidebarTab = 'conversas'"
+            class="flex-1 text-xs py-1.5 rounded-md transition-colors"
+            :class="sidebarTab === 'conversas' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'"
+          >
+            Conversas
+          </button>
+          <button
+            @click="sidebarTab = 'docs'"
+            class="flex-1 text-xs py-1.5 rounded-md transition-colors"
+            :class="sidebarTab === 'docs' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'"
+          >
+            Docs
+          </button>
+        </div>
       </div>
 
-      <div class="flex-1 p-4 space-y-5 overflow-y-auto">
-        <!-- Agent selector -->
-        <div>
-          <label class="block text-slate-400 text-xs uppercase tracking-wider mb-2">Agente</label>
+      <!-- ─── Tab: Conversas ─────────────────────────────────────────────── -->
+      <template v-if="sidebarTab === 'conversas'">
+        <!-- Agent selector (compact) -->
+        <div class="px-4 pt-3 pb-2">
+          <label class="block text-slate-400 text-xs uppercase tracking-wider mb-1">Agente</label>
           <div v-if="agentsStore.isFetching" class="text-slate-500 text-xs">Carregando...</div>
-          <div v-else-if="agentsStore.agents.length === 0" class="text-slate-500 text-xs">
-            Nenhum agente disponível
-          </div>
-          <div v-else class="space-y-1">
-            <button
-              v-for="agent in agentsStore.agents"
-              :key="agent.id"
-              @click="selectAgent(String(agent.id))"
-              class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors"
-              :class="
-                chat.selectedAgentId === String(agent.id)
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-300 hover:bg-slate-700'
-              "
-            >
-              <div class="font-medium">{{ agent.nome }}</div>
-              <div class="text-xs mt-0.5 opacity-70 flex flex-wrap gap-x-2">
-                <span v-for="skill in agent.skill_names" :key="skill">{{ skill }}</span>
-              </div>
-            </button>
-          </div>
+          <select
+            v-else
+            :value="chat.selectedAgentId"
+            @change="selectAgent(($event.target as HTMLSelectElement).value)"
+            class="w-full bg-slate-800 border border-slate-600 text-slate-300 text-xs rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-400"
+          >
+            <option v-for="agent in agentsStore.agents" :key="agent.id" :value="String(agent.id)">
+              {{ agent.nome }}
+            </option>
+          </select>
         </div>
 
-        <!-- Base de Conhecimento -->
-        <div>
-          <div class="flex items-center justify-between mb-2">
-            <label class="block text-slate-400 text-xs uppercase tracking-wider">
-              Base de Conhecimento
-            </label>
-            <button
-              v-if="chat.selectedAgentId"
-              @click="triggerUpload"
-              :disabled="isUploading"
-              title="Adicionar PDF"
-              class="text-slate-400 hover:text-white transition-colors disabled:opacity-40 text-sm"
-            >
-              +
-            </button>
-          </div>
-
-          <input
-            ref="fileInputEl"
-            type="file"
-            accept=".pdf"
-            class="hidden"
-            @change="handleFileChange"
-          />
-
-          <div v-if="!chat.selectedAgentId" class="text-slate-500 text-xs py-1">
-            Selecione um agente para ver seus documentos.
-          </div>
-
-          <div v-else-if="loadingDocs" class="text-slate-500 text-xs py-1">
+        <!-- Conversation list with infinite scroll -->
+        <div
+          ref="conversasSidebarEl"
+          class="flex-1 overflow-y-auto px-2 py-1"
+          @scroll="onSidebarScroll"
+        >
+          <div v-if="chat.conversasLoading && chat.conversas.length === 0" class="text-slate-500 text-xs py-4 text-center">
             Carregando...
           </div>
 
-          <div v-else class="space-y-1">
-            <div
-              v-for="doc in documentos"
-              :key="doc.id"
-              class="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-slate-800 group"
-            >
-              <div class="min-w-0 flex-1">
-                <div class="text-slate-300 text-xs font-medium truncate" :title="doc.filename">
-                  📄 {{ doc.filename }}
-                </div>
-                <div class="text-slate-500 text-xs">{{ doc.chunks }} chunks</div>
-              </div>
+          <div v-else-if="chat.conversas.length === 0" class="text-slate-500 text-xs py-4 text-center">
+            Nenhuma conversa ainda.
+          </div>
+
+          <template v-else>
+            <div v-for="group in groupConversasByDate(chat.conversas)" :key="group.label" class="mb-3">
+              <div class="text-slate-500 text-xs px-2 py-1 uppercase tracking-wider">{{ group.label }}</div>
               <button
-                @click="removerDocumento(doc.id)"
-                title="Remover documento"
-                class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all text-xs shrink-0"
+                v-for="c in group.items"
+                :key="c.id"
+                @click="chat.carregarConversa(c.id)"
+                class="w-full text-left px-3 py-2 rounded-lg text-xs transition-colors group flex items-center justify-between gap-2"
+                :class="
+                  chat.conversaId === c.id
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-300 hover:bg-slate-700'
+                "
               >
-                ✕
+                <span class="truncate">
+                  {{ c.titulo ?? 'Nova conversa' }}
+                </span>
+                <button
+                  @click.stop="chat.arquivarConversa(c.id)"
+                  title="Arquivar"
+                  class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-400 transition-all shrink-0 text-xs"
+                >
+                  ✕
+                </button>
               </button>
             </div>
 
-            <div v-if="documentos.length === 0" class="text-slate-500 text-xs py-1">
-              Nenhum documento indexado.
-              <button @click="triggerUpload" class="text-indigo-400 hover:text-indigo-300 underline ml-1">
-                Adicionar PDF
-              </button>
+            <div v-if="chat.conversasLoading" class="text-slate-500 text-xs text-center py-2">
+              Carregando mais...
             </div>
-          </div>
-
-          <div v-if="isUploading" class="mt-2 flex items-center gap-2 text-xs text-slate-400">
-            <span class="inline-block w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></span>
-            Indexando...
-          </div>
-
-          <div v-if="docError" class="mt-2 text-xs text-red-400 bg-red-900/30 px-2 py-1 rounded">
-            {{ docError }}
-          </div>
+          </template>
         </div>
 
-      </div>
+        <!-- Nova conversa -->
+        <div class="p-4 border-t border-slate-700">
+          <button
+            @click="chat.resetSession()"
+            :disabled="chat.isLoading"
+            class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
+          >
+            + Nova conversa
+          </button>
+        </div>
+      </template>
 
-      <!-- Nova conversa -->
-      <div class="p-4 border-t border-slate-700">
-        <button
-          @click="chat.resetSession()"
-          :disabled="chat.isLoading"
-          class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
-        >
-          🗑️ Nova conversa
-        </button>
-      </div>
+      <!-- ─── Tab: Documentos ───────────────────────────────────────────── -->
+      <template v-else>
+        <div class="flex-1 p-4 space-y-4 overflow-y-auto">
+          <!-- Agent selector -->
+          <div>
+            <label class="block text-slate-400 text-xs uppercase tracking-wider mb-2">Agente</label>
+            <div v-if="agentsStore.isFetching" class="text-slate-500 text-xs">Carregando...</div>
+            <div v-else class="space-y-1">
+              <button
+                v-for="agent in agentsStore.agents"
+                :key="agent.id"
+                @click="selectAgentFromDocs(String(agent.id))"
+                class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors"
+                :class="
+                  chat.selectedAgentId === String(agent.id)
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-300 hover:bg-slate-700'
+                "
+              >
+                <div class="font-medium">{{ agent.nome }}</div>
+                <div class="text-xs mt-0.5 opacity-70 flex flex-wrap gap-x-2">
+                  <span v-for="skill in agent.skill_names" :key="skill">{{ skill }}</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Base de Conhecimento -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <label class="block text-slate-400 text-xs uppercase tracking-wider">
+                Base de Conhecimento
+              </label>
+              <button
+                v-if="chat.selectedAgentId"
+                @click="triggerUpload"
+                :disabled="isUploading"
+                title="Adicionar PDF"
+                class="text-slate-400 hover:text-white transition-colors disabled:opacity-40 text-sm"
+              >
+                +
+              </button>
+            </div>
+
+            <input
+              ref="fileInputEl"
+              type="file"
+              accept=".pdf"
+              class="hidden"
+              @change="handleFileChange"
+            />
+
+            <div v-if="!chat.selectedAgentId" class="text-slate-500 text-xs py-1">
+              Selecione um agente.
+            </div>
+
+            <div v-else-if="loadingDocs" class="text-slate-500 text-xs py-1">
+              Carregando...
+            </div>
+
+            <div v-else class="space-y-1">
+              <div
+                v-for="doc in documentos"
+                :key="doc.id"
+                class="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-slate-800 group"
+              >
+                <div class="min-w-0 flex-1">
+                  <div class="text-slate-300 text-xs font-medium truncate" :title="doc.filename">
+                    {{ doc.filename }}
+                  </div>
+                  <div class="text-slate-500 text-xs">{{ doc.chunks }} chunks</div>
+                </div>
+                <button
+                  @click="removerDocumento(doc.id)"
+                  title="Remover documento"
+                  class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all text-xs shrink-0"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div v-if="documentos.length === 0" class="text-slate-500 text-xs py-1">
+                Nenhum documento indexado.
+                <button @click="triggerUpload" class="text-indigo-400 hover:text-indigo-300 underline ml-1">
+                  Adicionar PDF
+                </button>
+              </div>
+            </div>
+
+            <div v-if="isUploading" class="mt-2 flex items-center gap-2 text-xs text-slate-400">
+              <span class="inline-block w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></span>
+              Indexando...
+            </div>
+
+            <div v-if="docError" class="mt-2 text-xs text-red-400 bg-red-900/30 px-2 py-1 rounded">
+              {{ docError }}
+            </div>
+          </div>
+        </div>
+      </template>
     </aside>
 
     <!-- ─── Main chat area ─────────────────────────────────────────────── -->
@@ -322,6 +465,7 @@ function triggerUpload() {
         </div>
         <p class="text-slate-400 dark:text-slate-500 text-xs mt-2">
           Agente: <strong>{{ agentsStore.agents.find((a) => String(a.id) === chat.selectedAgentId)?.nome ?? chat.selectedAgentId }}</strong>
+          <span v-if="chat.conversaId" class="ml-2 text-slate-500">&bull; Conversa #{{ chat.conversaId }}</span>
         </p>
       </div>
     </div>

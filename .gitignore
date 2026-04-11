@@ -5,6 +5,9 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Banco SQLite local (dev)
+*.db
+
 # Banco vetorial (gerado localmente)
 data/chroma_db/
 

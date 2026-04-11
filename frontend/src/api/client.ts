@@ -197,6 +197,36 @@ export interface Documento {
   updated_at: string
 }
 
+export interface Conversa {
+  id: number
+  agente_id: number
+  agente_nome: string
+  titulo: string | null
+  created_at: string
+  updated_at: string
+  total_mensagens: number
+}
+
+export interface MensagemConversa {
+  id: number
+  role: 'user' | 'assistant' | 'tool' | 'system'
+  conteudo: string
+  tool_name: string | null
+  created_at: string
+}
+
+export interface ConversaDetalhada extends Conversa {
+  mensagens: MensagemConversa[]
+}
+
+export interface ConversaListResponse {
+  items: Conversa[]
+  total: number
+  page: number
+  page_size: number
+  has_more: boolean
+}
+
 export interface McpServerCreate {
   nome: string
   descricao: string
@@ -290,6 +320,16 @@ export const api = {
     apiClient.get<{ llm_provider: string | null; llm_model: string | null; llm_api_key_set: boolean }>('/tenants/me/llm-config'),
   updateLlmConfig: (data: { llm_provider?: string | null; llm_model?: string | null; llm_api_key?: string | null }) =>
     apiClient.put('/tenants/me/llm-config', data),
+
+  // Conversas (Fase 19)
+  listConversas: (params?: { agente_id?: number; arquivada?: boolean; page?: number; page_size?: number }) =>
+    apiClient.get<ConversaListResponse>('/chat/conversas', { params }),
+  getConversa: (id: number) =>
+    apiClient.get<ConversaDetalhada>(`/chat/conversas/${id}`),
+  arquivarConversa: (id: number) =>
+    apiClient.delete(`/chat/conversas/${id}`),
+  restaurarConversa: (id: number) =>
+    apiClient.post(`/chat/conversas/${id}/restaurar`),
 
   // Telegram
   listTelegramInstancias: () => apiClient.get<TelegramInstancia[]>('/telegram/instancias'),
