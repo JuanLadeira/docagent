@@ -694,10 +694,12 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
                 "updated_at": atendimento.updated_at.isoformat() if atendimento.updated_at else None,
             }
             await db.commit()
+            msg_contato_id = msg_contato.id  # disponível após commit (expire_on_commit=False)
 
         # Broadcast mensagem do contato via SSE
         await atendimento_sse_manager.broadcast(atendimento_id, {
             "type": "NOVA_MENSAGEM",
+            "mensagem_id": msg_contato_id,
             "origem": "CONTATO",
             "conteudo": conteudo_salvo,
             "tipo": MensagemTipo.AUDIO.value if is_audio_msg else MensagemTipo.TEXT.value,
@@ -740,17 +742,20 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
                     log.exception("Erro ao gerar TTS WhatsApp para media_ref")
 
             async with AsyncSessionLocal() as db:
-                db.add(MensagemAtendimento(
+                msg_agente_audio = MensagemAtendimento(
                     atendimento_id=atendimento_id,
                     origem=MensagemOrigem.AGENTE,
                     conteudo=answer,
                     tipo=MensagemTipo.AUDIO.value if tts_media_ref else MensagemTipo.TEXT.value,
                     media_ref=tts_media_ref,
-                ))
+                )
+                db.add(msg_agente_audio)
                 await db.commit()
+                msg_agente_audio_id = msg_agente_audio.id
 
             await atendimento_sse_manager.broadcast(atendimento_id, {
                 "type": "NOVA_MENSAGEM",
+                "mensagem_id": msg_agente_audio_id,
                 "origem": "AGENTE",
                 "conteudo": answer,
                 "tipo": MensagemTipo.AUDIO.value if tts_media_ref else MensagemTipo.TEXT.value,
@@ -846,9 +851,11 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
             )
             db.add(msg_agente)
             await db.commit()
+            msg_agente_id = msg_agente.id
 
         await atendimento_sse_manager.broadcast(atendimento_id, {
             "type": "NOVA_MENSAGEM",
+            "mensagem_id": msg_agente_id,
             "origem": "AGENTE",
             "conteudo": answer,
         })

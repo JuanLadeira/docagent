@@ -448,10 +448,12 @@ async def _processar_update(bot_token: str, update: TelegramUpdate) -> None:
             "updated_at": atendimento.updated_at.isoformat() if atendimento.updated_at else None,
         }
         await db.commit()
+        msg_contato_id = msg_contato.id  # disponível após commit (expire_on_commit=False)
 
     # Broadcasts SSE
     await atendimento_sse_manager.broadcast(atendimento_id, {
         "type": "NOVA_MENSAGEM",
+        "mensagem_id": msg_contato_id,
         "origem": "CONTATO",
         "conteudo": conteudo_salvo,
         "tipo": MensagemTipo.AUDIO.value if is_audio_msg else MensagemTipo.TEXT.value,
@@ -574,9 +576,11 @@ async def _executar_agente_e_salvar(
         )
         db.add(msg_agente)
         await db.commit()
+        msg_agente_id = msg_agente.id
 
     await atendimento_sse_manager.broadcast(atendimento_id, {
         "type": "NOVA_MENSAGEM",
+        "mensagem_id": msg_agente_id,
         "origem": "AGENTE",
         "conteudo": answer,
         "tipo": MensagemTipo.AUDIO.value if tts_media_ref else MensagemTipo.TEXT.value,

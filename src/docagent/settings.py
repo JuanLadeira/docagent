@@ -21,7 +21,7 @@ class Settings:
     # Áudio — system defaults (usados quando não há AudioConfig no banco)
     AUDIO_STT_HABILITADO: bool = os.getenv("AUDIO_STT_HABILITADO", "false").lower() == "true"
     AUDIO_STT_PROVIDER: str = os.getenv("AUDIO_STT_PROVIDER", "faster_whisper")
-    AUDIO_STT_MODELO: str = os.getenv("AUDIO_STT_MODELO", "base")
+    AUDIO_STT_MODELO: str = os.getenv("AUDIO_STT_MODELO", "small")
     AUDIO_TTS_HABILITADO: bool = os.getenv("AUDIO_TTS_HABILITADO", "false").lower() == "true"
     AUDIO_TTS_PROVIDER: str = os.getenv("AUDIO_TTS_PROVIDER", "piper")
     AUDIO_MODO_RESPOSTA: str = os.getenv("AUDIO_MODO_RESPOSTA", "audio_e_texto")

@@ -51,6 +51,12 @@ class FasterWhisperSTT:
                 beam_size=5,
                 vad_filter=True,           # remove silêncio/ruído antes de transcrever
                 vad_parameters={"min_silence_duration_ms": 500},
+                # Evita alucinações em segmentos de áudio curtos ou com ruído
+                condition_on_previous_text=False,
+                # Dica de contexto para o modelo usar português brasileiro
+                initial_prompt="Transcrição em português brasileiro:",
+                # Descarta segmentos com confiança muito baixa de fala
+                no_speech_threshold=0.6,
             )
             texto = "".join(seg.text for seg in segments).strip()
             log.info(
