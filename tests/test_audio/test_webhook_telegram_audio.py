@@ -208,15 +208,18 @@ async def test_audio_file_transcrito_quando_stt_habilitado(client, setup, sessio
 @pytest.mark.asyncio
 async def test_texto_nao_afetado_por_audio(client, setup):
     """Regressão: mensagens de texto devem retornar 200 sem interferência do áudio."""
-    # O agente vai tentar executar mas pode falhar (Ollama offline em testes)
-    # O importante é que o webhook retorne 200 e não tente processar como áudio
-    with patch("docagent.telegram.router._executar_agente_telegram", new_callable=AsyncMock, return_value="") as mock_agent:
+    # Texto com cria_atendimentos=False vai por _executar_e_responder_direto,
+    # que chama Ollama. Mockamos ambas as funções para isolar o CI do LLM.
+    with patch("docagent.telegram.router._executar_agente_telegram", new_callable=AsyncMock, return_value="") as mock_agent, \
+         patch("docagent.telegram.router._executar_e_responder_direto", new_callable=AsyncMock) as mock_direto:
         r = await client.post(f"/api/telegram/webhook/{BOT_TOKEN}", json=_texto_update())
 
     assert r.status_code == 200
     assert r.json() == {"ok": True}
     # _executar_agente_telegram NÃO deve ser chamado (caminho de texto usa lógica inline)
     mock_agent.assert_not_called()
+    # _executar_e_responder_direto SIM deve ser chamado (modo direto com agente vinculado)
+    mock_direto.assert_called_once()
 
 
 @pytest.mark.asyncio
