@@ -7,7 +7,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-PROVIDERS = ("ollama", "openai", "groq", "anthropic", "gemini")
+PROVIDERS = ("ollama", "openai", "groq", "anthropic", "gemini", "hf_local")
 
 
 def get_llm(
@@ -57,6 +57,10 @@ def get_llm(
             google_api_key=api_key or os.getenv("GOOGLE_API_KEY") or "",
             temperature=0,
         )
+
+    if provider == "hf_local":
+        from docagent.agent.llm_hf import get_hf_llm
+        return get_hf_llm()
 
     # Ollama (padrão)
     from langchain_ollama import ChatOllama
