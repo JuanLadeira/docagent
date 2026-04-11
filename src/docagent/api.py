@@ -32,6 +32,7 @@ from docagent.assinatura.router import router as assinatura_router
 from docagent.vagas.router import router as vagas_router
 from docagent.audio.router import router as audio_router
 from docagent.conversa.router import router as conversa_router
+from docagent.audit.router import router as audit_router
 
 load_dotenv()
 
@@ -107,3 +108,6 @@ app.include_router(audio_router)
 
 # Histórico de conversas (Fase 19)
 app.include_router(conversa_router)
+
+# Audit Log (Fase 21c)
+app.include_router(audit_router)
