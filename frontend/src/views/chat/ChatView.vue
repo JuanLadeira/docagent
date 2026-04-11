@@ -60,6 +60,10 @@ function formatRecordingTime(s: number) {
 
 onMounted(async () => {
   await agentsStore.fetchIfNeeded()
+  // Auto-seleciona o primeiro agente se nenhum válido estiver selecionado
+  if (isNaN(Number(chat.selectedAgentId)) && agentsStore.agents.length > 0) {
+    chat.selectedAgentId = String(agentsStore.agents[0].id)
+  }
   if (chat.selectedAgentId) loadDocumentos(chat.selectedAgentId)
   await chat.fetchConversas(true)
 })
