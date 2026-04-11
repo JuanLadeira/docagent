@@ -218,9 +218,27 @@ async def eventos_instancia(
 
 # ── Webhook (recebe eventos da Evolution API) ─────────────────────────────────
 
+def _validar_webhook_evolution(request: Request) -> None:
+    """
+    Valida que o webhook veio da Evolution API verificando o header 'apikey'.
+    Só bloqueia se EVOLUTION_API_KEY estiver configurada — facilita dev local.
+    """
+    _settings = Settings()
+    expected = _settings.EVOLUTION_API_KEY
+    if not expected:
+        return  # sem chave configurada, aceita tudo (dev/local)
+    received = request.headers.get("apikey", "")
+    if received != expected:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook não autorizado",
+        )
+
+
 @router.post("/webhook", status_code=status.HTTP_200_OK)
 @limiter.limit("100/minute")
 async def receber_webhook(request: Request, evento: WebhookEvento):
+    _validar_webhook_evolution(request)
     # Evolution API v1 usa maiúsculo+underscore; v2 usa minúsculo+ponto
     event_normalized = evento.event.upper().replace(".", "_")
     if event_normalized == "QRCODE_UPDATED":

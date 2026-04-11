@@ -12,7 +12,7 @@ import asyncio
 import logging
 from contextlib import AsyncExitStack
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, status
 
 from docagent.rate_limit import limiter
 from langchain_core.messages import AIMessage
@@ -145,10 +145,36 @@ async def configurar_webhook(
 
 # ── Webhook público ───────────────────────────────────────────────────────────
 
+def _validar_webhook_telegram(request: Request, webhook_secret: str | None) -> None:
+    """
+    Valida o header X-Telegram-Bot-Api-Secret-Token.
+    Só bloqueia se webhook_secret estiver configurado na instância — instâncias
+    configuradas antes desta feature continuam funcionando sem validação.
+    """
+    if not webhook_secret:
+        return
+    received = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if received != webhook_secret:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook não autorizado",
+        )
+
+
 @router.post("/webhook/{bot_token}", status_code=200)
 @limiter.limit("100/minute")
 async def receber_update(request: Request, bot_token: str, update: TelegramUpdate):
     """Endpoint público chamado pelo Telegram. Sempre retorna 200."""
+    # Valida origem antes de processar — busca o webhook_secret da instância
+    async with AsyncSessionLocal() as db_val:
+        from sqlalchemy import select as _sel_val
+        result = await db_val.execute(
+            _sel_val(TelegramInstancia).where(TelegramInstancia.bot_token == bot_token)
+        )
+        instancia_val = result.scalar_one_or_none()
+        if instancia_val:
+            _validar_webhook_telegram(request, instancia_val.webhook_secret)
+
     await _processar_update(bot_token, update)
     return {"ok": True}
 
