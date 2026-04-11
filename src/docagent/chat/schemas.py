@@ -42,3 +42,12 @@ class UploadResponse(BaseModel):
     filename: str
     chunks: int
     collection_id: str
+
+
+class SttResponse(BaseModel):
+    transcription: str
+
+
+class TtsRequest(BaseModel):
+    text: str
+    agent_id: int | None = None
