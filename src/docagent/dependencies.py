@@ -1,19 +1,20 @@
 """
 Dependencias FastAPI compartilhadas.
 """
-from functools import lru_cache
-
 from fastapi import Depends, HTTPException
 
-from docagent.chat.session import SessionManager
+from docagent.chat.session import InMemorySessionManager
 from docagent.rag.ingest_service import IngestService
 from docagent.auth.current_user import CurrentUser
 from docagent.assinatura.services import AssinaturaServiceDep
 
+# Singleton do session manager — substituído por RedisSessionManager no lifespan
+# de api.py se REDIS_URL estiver configurada.
+_session_manager: InMemorySessionManager = InMemorySessionManager()
 
-@lru_cache(maxsize=1)
-def get_session_manager() -> SessionManager:
-    return SessionManager()
+
+def get_session_manager():
+    return _session_manager
 
 
 def get_ingest_service() -> IngestService:

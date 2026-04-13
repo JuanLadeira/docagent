@@ -8,6 +8,8 @@ Fase 19: persiste histórico de conversa no banco de dados.
 import asyncio
 from contextlib import AsyncExitStack
 
+from cachetools import TTLCache
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage
@@ -24,15 +26,15 @@ from docagent.dependencies import get_session_manager
 from docagent.mcp_server.services import McpServiceDep, load_mcp_tools_for_skills
 from docagent.chat.schemas import ChatRequest, HealthResponse, SttResponse, TtsRequest
 from docagent.chat.service import ChatService
-from docagent.chat.session import SessionManager
 from docagent.rate_limit import get_tenant_key, limiter
 
 router = APIRouter()
 
 # Cache de agentes construídos, keyed por (agente_id, skill_names, system_prompt).
-# Invalida automaticamente quando a configuração do agente muda.
+# TTLCache: expira entradas após 30 minutos e limita a 100 agentes simultâneos.
 # Agentes com skills mcp:* NÃO são cacheados — precisam de conexão ativa por requisição.
-_agent_cache: dict[tuple, object] = {}
+_agent_cache: TTLCache = TTLCache(maxsize=100, ttl=1800)
+_cache_lock = asyncio.Lock()
 
 
 def _mcp_skill_names(skill_names: list[str]) -> list[str]:
@@ -55,7 +57,7 @@ def _build_agent(agente, extra_tools: list | None = None, llm=None):
     ).build()
 
 
-def _get_or_build_agent(agente, llm=None, llm_provider: str = "", llm_model: str = ""):
+async def _get_or_build_agent(agente, llm=None, llm_provider: str = "", llm_model: str = ""):
     """Retorna agente cacheado ou constrói novo se a config mudou.
     Agentes com skills MCP nunca são cacheados."""
     cache_key = (
@@ -65,9 +67,10 @@ def _get_or_build_agent(agente, llm=None, llm_provider: str = "", llm_model: str
         llm_provider,
         llm_model,
     )
-    if cache_key not in _agent_cache:
-        _agent_cache[cache_key] = _build_agent(agente, llm=llm)
-    return _agent_cache[cache_key]
+    async with _cache_lock:
+        if cache_key not in _agent_cache:
+            _agent_cache[cache_key] = _build_agent(agente, llm=llm)
+        return _agent_cache[cache_key]
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -84,7 +87,7 @@ async def chat(
     agente_service: AgenteServiceDep,
     mcp_service: McpServiceDep,
     db: AsyncDBSession,
-    sessions: SessionManager = Depends(get_session_manager),
+    sessions=Depends(get_session_manager),
 ) -> StreamingResponse:
     try:
         agente_id = int(body.agent_id)
@@ -109,7 +112,7 @@ async def chat(
         # Carrega histórico do banco como estado inicial
         historico = await svc.carregar_historico(body.conversa_id)
         session_state = {"messages": historico, "summary": ""}
-        sessions.update(body.session_id, session_state)
+        await sessions.update_async(body.session_id, session_state)
     else:
         conversa = await svc.criar(
             tenant_id=current_user.tenant_id,
@@ -130,7 +133,7 @@ async def chat(
         mcp_tools = await load_mcp_tools_for_skills(mcp_skills, servers, stack)
         agent = _build_agent(agente, extra_tools=mcp_tools, llm=tenant_llm)
     else:
-        agent = _get_or_build_agent(agente, llm=tenant_llm, llm_provider=llm_provider)
+        agent = await _get_or_build_agent(agente, llm=tenant_llm, llm_provider=llm_provider)
 
     service = ChatService(agent, sessions)
 
@@ -140,7 +143,7 @@ async def chat(
         yield f"data: {json.dumps({'type': 'meta', 'conversa_id': conversa_id})}\n\n"
 
         async with stack:
-            for chunk in service.stream(body.question, body.session_id):
+            async for chunk in service.astream(body.question, body.session_id):
                 yield chunk
 
         # Persiste mensagens após o stream completo
@@ -190,7 +193,7 @@ async def chat_sync(
     current_user: CurrentUser,
     agente_service: AgenteServiceDep,
     mcp_service: McpServiceDep,
-    sessions: SessionManager = Depends(get_session_manager),
+    sessions=Depends(get_session_manager),
 ) -> dict:
     """Endpoint síncrono para integrações externas (n8n, Evolution API, etc).
     Aguarda a resposta completa e retorna JSON."""
@@ -215,12 +218,12 @@ async def chat_sync(
             mcp_tools = await load_mcp_tools_for_skills(mcp_skills, servers, stack)
             agent = _build_agent(agente, extra_tools=mcp_tools, llm=tenant_llm2)
         else:
-            agent = _get_or_build_agent(agente, llm=tenant_llm2, llm_provider=llm_provider2)
-        state = sessions.get(request.session_id)
+            agent = await _get_or_build_agent(agente, llm=tenant_llm2, llm_provider=llm_provider2)
+        state = await sessions.get_async(request.session_id)
         final_state = agent.run(request.question, state)
 
     if agent.last_state is not None:
-        sessions.update(request.session_id, agent.last_state)
+        await sessions.update_async(request.session_id, agent.last_state)
 
     answer = ""
     if final_state and final_state.get("messages"):
@@ -275,11 +278,11 @@ async def text_to_speech(
 
 
 @router.delete("/session/{session_id}")
-def delete_session(
+async def delete_session(
     session_id: str,
-    sessions: SessionManager = Depends(get_session_manager),
+    sessions=Depends(get_session_manager),
 ) -> dict:
-    if not sessions.delete(session_id):
+    if not await sessions.delete_async(session_id):
         raise HTTPException(
             status_code=404,
             detail=f"Sessao '{session_id}' nao encontrada.",

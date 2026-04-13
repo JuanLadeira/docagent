@@ -118,6 +118,21 @@ async def upload_documento(
     if not await service.get_by_id(agente_id, tenant_id=current_user.tenant_id):
         raise HTTPException(status_code=404, detail="Agente nao encontrado")
     content = await file.read()
+
+    # Se Redis disponível, despacha ingestão como task Celery (retorna 202).
+    from docagent.settings import Settings
+    if Settings.REDIS_URL:
+        import base64
+        from fastapi.responses import JSONResponse
+        from docagent.tasks.ingestao import ingerir_documento_task
+        content_b64 = base64.b64encode(content).decode()
+        task = ingerir_documento_task.delay(agente_id, file.filename, content_b64)
+        return JSONResponse(
+            status_code=202,
+            content={"task_id": task.id, "agente_id": agente_id, "filename": file.filename},
+        )
+
+    # Fallback síncrono (sem Redis): ingere na request.
     try:
         doc = await doc_service.create(agente_id, file.filename, content)
     except ValueError as e:

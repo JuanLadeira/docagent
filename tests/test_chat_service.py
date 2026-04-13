@@ -3,8 +3,10 @@ Testes TDD para ChatService (services/chat_service.py).
 
 ChatService orquestra BaseAgent + SessionManager sem conhecimento de HTTP.
 Testado com mocks das duas dependencias.
+Fase 23: interface async (astream, delete_session_async).
 """
 import json
+import pytest
 from unittest.mock import MagicMock
 
 
@@ -20,111 +22,123 @@ def make_mock_agent(answer="resposta do agente"):
 
 
 def make_mock_sessions():
-    """Cria um SessionManager mockado."""
-    from docagent.chat.session import SessionManager
-    sm = SessionManager()
-    return sm
+    """Cria um InMemorySessionManager real para testes."""
+    from docagent.chat.session import InMemorySessionManager
+    return InMemorySessionManager()
 
 
 class TestChatServiceStream:
-    def test_stream_yields_events_from_agent(self):
-        """stream() deve repassar os eventos do agente para o chamador."""
+    @pytest.mark.asyncio
+    async def test_stream_yields_events_from_agent(self):
+        """astream() deve repassar os eventos do agente para o chamador."""
         from docagent.chat.service import ChatService
 
         agent = make_mock_agent("resposta teste")
         service = ChatService(agent, make_mock_sessions())
 
-        events = list(service.stream("pergunta", "sessao-1"))
+        events = []
+        async for chunk in service.astream("pergunta", "sessao-1"):
+            events.append(chunk)
         assert len(events) > 0
 
-    def test_stream_contains_done_event(self):
+    @pytest.mark.asyncio
+    async def test_stream_contains_done_event(self):
         """O stream deve terminar com evento done."""
         from docagent.chat.service import ChatService
 
         agent = make_mock_agent()
         service = ChatService(agent, make_mock_sessions())
 
-        all_text = "".join(service.stream("pergunta", "s"))
+        all_text = ""
+        async for chunk in service.astream("pergunta", "s"):
+            all_text += chunk
         assert "done" in all_text
 
-    def test_stream_calls_agent_with_question(self):
-        """stream() deve chamar agent.stream com a pergunta correta."""
+    @pytest.mark.asyncio
+    async def test_stream_calls_agent_with_question(self):
+        """astream() deve chamar agent.stream com a pergunta correta."""
         from docagent.chat.service import ChatService
 
         agent = make_mock_agent()
         service = ChatService(agent, make_mock_sessions())
 
-        list(service.stream("minha pergunta", "s"))
+        async for _ in service.astream("minha pergunta", "s"):
+            pass
 
         agent.stream.assert_called_once()
         call_args = agent.stream.call_args
         assert call_args[0][0] == "minha pergunta"
 
-    def test_stream_passes_existing_session_state_to_agent(self):
-        """stream() deve passar o estado da sessao existente para o agente."""
+    @pytest.mark.asyncio
+    async def test_stream_passes_existing_session_state_to_agent(self):
+        """astream() deve passar o estado da sessao existente para o agente."""
         from docagent.chat.service import ChatService
-        from docagent.chat.session import SessionManager
 
         agent = make_mock_agent()
-        sessions = SessionManager()
+        sessions = make_mock_sessions()
         existing_state = {"messages": [], "summary": "historico anterior"}
-        sessions.update("s", existing_state)
+        await sessions.update_async("s", existing_state)
 
         service = ChatService(agent, sessions)
-        list(service.stream("pergunta", "s"))
+        async for _ in service.astream("pergunta", "s"):
+            pass
 
         call_kwargs = agent.stream.call_args[1]
         passed_state = call_kwargs.get("state") or agent.stream.call_args[0][1]
         assert passed_state["summary"] == "historico anterior"
 
-    def test_stream_updates_session_after_completion(self):
+    @pytest.mark.asyncio
+    async def test_stream_updates_session_after_completion(self):
         """Apos o stream, a sessao deve ser atualizada com o estado final."""
         from docagent.chat.service import ChatService
-        from docagent.chat.session import SessionManager
 
         agent = make_mock_agent()
         agent.last_state = {"messages": [], "summary": "novo resumo"}
-        sessions = SessionManager()
+        sessions = make_mock_sessions()
 
         service = ChatService(agent, sessions)
-        list(service.stream("pergunta", "minha-sessao"))
+        async for _ in service.astream("pergunta", "minha-sessao"):
+            pass
 
-        assert sessions.has("minha-sessao")
+        # A sessão deve conter o estado atualizado
+        state = await sessions.get_async("minha-sessao")
+        assert state["summary"] == "novo resumo"
 
 
 class TestChatServiceDeleteSession:
-    def test_delete_existing_session_returns_true(self):
-        """delete_session() de sessao existente deve retornar True."""
+    @pytest.mark.asyncio
+    async def test_delete_existing_session_returns_true(self):
+        """delete_session_async() de sessao existente deve retornar True."""
         from docagent.chat.service import ChatService
-        from docagent.chat.session import SessionManager
 
-        sessions = SessionManager()
-        sessions.update("existe", {"messages": [], "summary": ""})
+        sessions = make_mock_sessions()
+        await sessions.update_async("existe", {"messages": [], "summary": ""})
 
         service = ChatService(MagicMock(), sessions)
-        result = service.delete_session("existe")
+        result = await service.delete_session_async("existe")
 
         assert result is True
 
-    def test_delete_nonexistent_session_returns_false(self):
-        """delete_session() de sessao inexistente deve retornar False."""
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_session_returns_false(self):
+        """delete_session_async() de sessao inexistente deve retornar False."""
         from docagent.chat.service import ChatService
-        from docagent.chat.session import SessionManager
 
-        service = ChatService(MagicMock(), SessionManager())
-        result = service.delete_session("nao-existe")
+        service = ChatService(MagicMock(), make_mock_sessions())
+        result = await service.delete_session_async("nao-existe")
 
         assert result is False
 
-    def test_delete_removes_session_from_manager(self):
-        """Apos delete_session(), a sessao nao deve mais existir."""
+    @pytest.mark.asyncio
+    async def test_delete_removes_session_from_manager(self):
+        """Apos delete_session_async(), o estado deve ser vazio."""
         from docagent.chat.service import ChatService
-        from docagent.chat.session import SessionManager
 
-        sessions = SessionManager()
-        sessions.update("s", {"messages": [], "summary": ""})
+        sessions = make_mock_sessions()
+        await sessions.update_async("s", {"messages": [], "summary": ""})
 
         service = ChatService(MagicMock(), sessions)
-        service.delete_session("s")
+        await service.delete_session_async("s")
 
-        assert not sessions.has("s")
+        state = await sessions.get_async("s")
+        assert state == {"messages": [], "summary": ""}
