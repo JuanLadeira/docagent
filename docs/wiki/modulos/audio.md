@@ -55,7 +55,8 @@ UniqueConstraint("tenant_id", "agente_id")
 3. Nenhuma                          → types.SimpleNamespace (system defaults hardcoded)
 ```
 
-System defaults: `stt_habilitado=False`, `tts_habilitado=False`, `stt_modelo="base"`, `tts_provider="piper"`.
+System defaults: `stt_habilitado=False`, `tts_habilitado=False`, `stt_modelo="small"`, `tts_provider="piper"`.
+(Fase 21: modelo padrão atualizado de `"base"` para `"small"` — melhor qualidade para português.)
 
 **Importante:** system defaults retornam `SimpleNamespace`, não objeto ORM. `id=None` nesse caso.
 Ver [decisao: system-defaults-simplenamespace](../decisoes/system-defaults-simplenamespace.md).
