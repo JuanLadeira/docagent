@@ -109,6 +109,7 @@ services:
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL}"
       LLM_MODEL: "${LLM_MODEL}"
       EMBED_MODEL: "${EMBED_MODEL}"
+      SKIP_MIGRATIONS: "true"
     depends_on:
       redis:
         condition: service_started
@@ -127,6 +128,7 @@ services:
     command: uv run celery -A docagent.celery_app beat --loglevel=info
     environment:
       REDIS_URL: "redis://redis:6379/0"
+      SKIP_MIGRATIONS: "true"
     depends_on:
       redis:
         condition: service_started
