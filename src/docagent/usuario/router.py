@@ -22,16 +22,19 @@ async def list_usuarios(current_user: CurrentUser, service: UsuarioServiceDep):
 
 
 @router.get("/{usuario_id}", response_model=UsuarioPublic)
-async def get_usuario(usuario_id: int, service: UsuarioServiceDep):
+async def get_usuario(
+    usuario_id: int,
+    current_user: CurrentUser,
+    service: UsuarioServiceDep,
+):
     usuario = await service.get_by_id(usuario_id)
-    if not usuario:
+    if not usuario or usuario.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
     return usuario
 
 
 @router.post("/", response_model=UsuarioPublic, status_code=status.HTTP_201_CREATED)
 async def create_usuario(data: UsuarioCreate, _: CurrentOwner, service: UsuarioServiceDep):
-    # Check if username or email already exists
     existing = await service.get_by_username(data.username)
     if existing:
         raise HTTPException(status_code=400, detail="Username ja existe")
@@ -45,16 +48,29 @@ async def create_usuario(data: UsuarioCreate, _: CurrentOwner, service: UsuarioS
 
 @router.put("/{usuario_id}", response_model=UsuarioPublic)
 async def update_usuario(
-    usuario_id: int, data: UsuarioUpdate, service: UsuarioServiceDep
+    usuario_id: int,
+    data: UsuarioUpdate,
+    current_user: CurrentOwner,
+    service: UsuarioServiceDep,
 ):
-    usuario = await service.update(usuario_id, data)
-    if not usuario:
+    usuario = await service.get_by_id(usuario_id)
+    if not usuario or usuario.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
-    return usuario
+    updated = await service.update(usuario_id, data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+    return updated
 
 
 @router.delete("/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_usuario(usuario_id: int, _: CurrentOwner, service: UsuarioServiceDep):
+async def delete_usuario(
+    usuario_id: int,
+    current_user: CurrentOwner,
+    service: UsuarioServiceDep,
+):
+    usuario = await service.get_by_id(usuario_id)
+    if not usuario or usuario.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
     deleted = await service.delete(usuario_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")

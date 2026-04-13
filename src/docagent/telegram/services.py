@@ -83,9 +83,15 @@ class TelegramService:
     async def configurar_webhook(
         self, instancia: TelegramInstancia, webhook_url: str
     ) -> TelegramInstancia:
+        import secrets as _secrets
+        webhook_secret = _secrets.token_hex(32)
         async with get_telegram_client(instancia.bot_token) as client:
-            await client.post("/setWebhook", json={"url": webhook_url})
+            await client.post(
+                "/setWebhook",
+                json={"url": webhook_url, "secret_token": webhook_secret},
+            )
         instancia.webhook_configured = True
+        instancia.webhook_secret = webhook_secret
         await self.session.flush()
         await self.session.refresh(instancia)
         return instancia

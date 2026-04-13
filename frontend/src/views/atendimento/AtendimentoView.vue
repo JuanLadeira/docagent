@@ -33,6 +33,24 @@ const mensagensContainer = ref<HTMLElement | null>(null)
 let sseCleanupConversa: (() => void) | null = null
 let sseCleanupLista: (() => void) | null = null
 
+// ── Áudio autenticado: blob URLs ──────────────────────────────────────────────
+const audioBlobUrls = ref<Record<number, string>>({})
+
+async function carregarAudio(mensagemId: number): Promise<void> {
+  if (audioBlobUrls.value[mensagemId]) return
+  const token = sessionStorage.getItem('token') ?? ''
+  try {
+    const res = await fetch(`/api/atendimentos/media/${mensagemId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return
+    const blob = await res.blob()
+    audioBlobUrls.value[mensagemId] = URL.createObjectURL(blob)
+  } catch {
+    // silencioso — o player ficará sem src
+  }
+}
+
 const sseStatus = ref<SseStatus>('connecting')
 const sseEverConnected = ref(false)
 
@@ -184,13 +202,22 @@ async function selecionar(atendimento: Atendimento) {
     carregandoDetalhe.value = false
   }
 
+  // Pré-carregar blob URLs para mensagens de áudio já existentes
+  for (const msg of selecionado.value?.mensagens ?? []) {
+    if (msg.tipo === 'audio' && msg.media_ref) {
+      carregarAudio(msg.id)
+    }
+  }
+
   await nextTick()
   scrollToBottom()
 
   sseCleanupConversa = subscribeAtendimentoEventos(atendimento.id, (event) => {
     if (event.type === 'NOVA_MENSAGEM' && selecionado.value?.id === atendimento.id) {
+      // Usar mensagem_id real do banco (enviado pelo backend); fallback para Date.now()
+      const realId = (event.mensagem_id as number | undefined) ?? Date.now()
       const nova: MensagemAtendimento = {
-        id: Date.now(),
+        id: realId,
         origem: event.origem as MensagemOrigem,
         conteudo: event.conteudo as string,
         tipo: ((event.tipo as string) ?? 'text') as 'text' | 'audio',
@@ -198,6 +225,10 @@ async function selecionar(atendimento: Atendimento) {
         created_at: (event.created_at as string) ?? new Date().toISOString(),
       }
       selecionado.value.mensagens.push(nova)
+      // Se for áudio, carregar o blob URL imediatamente
+      if (nova.tipo === 'audio' && nova.media_ref && event.mensagem_id) {
+        carregarAudio(realId)
+      }
       nextTick(scrollToBottom)
     }
   })
@@ -655,11 +686,13 @@ onUnmounted(() => {
                 :class="classBolha(msg.origem)"
               >
                 <audio
+                  v-if="audioBlobUrls[msg.id]"
                   controls
-                  preload="none"
+                  preload="auto"
                   class="h-8 w-48 accent-white"
-                  :src="`/api/atendimentos/media/${msg.id}`"
+                  :src="audioBlobUrls[msg.id]"
                 />
+                <span v-else class="text-xs opacity-60">carregando áudio…</span>
               </div>
               <!-- Transcrição abaixo do player -->
               <p

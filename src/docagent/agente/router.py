@@ -146,5 +146,5 @@ async def remover_documento(
 ):
     if not await service.get_by_id(agente_id, tenant_id=current_user.tenant_id):
         raise HTTPException(status_code=404, detail="Agente nao encontrado")
-    if not await doc_service.delete(doc_id):
+    if not await doc_service.delete(doc_id, agente_id=agente_id):
         raise HTTPException(status_code=404, detail="Documento nao encontrado")

@@ -21,7 +21,7 @@ class Settings:
     # Áudio — system defaults (usados quando não há AudioConfig no banco)
     AUDIO_STT_HABILITADO: bool = os.getenv("AUDIO_STT_HABILITADO", "false").lower() == "true"
     AUDIO_STT_PROVIDER: str = os.getenv("AUDIO_STT_PROVIDER", "faster_whisper")
-    AUDIO_STT_MODELO: str = os.getenv("AUDIO_STT_MODELO", "base")
+    AUDIO_STT_MODELO: str = os.getenv("AUDIO_STT_MODELO", "small")
     AUDIO_TTS_HABILITADO: bool = os.getenv("AUDIO_TTS_HABILITADO", "false").lower() == "true"
     AUDIO_TTS_PROVIDER: str = os.getenv("AUDIO_TTS_PROVIDER", "piper")
     AUDIO_MODO_RESPOSTA: str = os.getenv("AUDIO_MODO_RESPOSTA", "audio_e_texto")
@@ -36,3 +36,11 @@ class Settings:
     TURBOQUANT_ENABLED: bool = os.getenv("TURBOQUANT_ENABLED", "true").lower() == "true"
     TURBOQUANT_BITS: int = int(os.getenv("TURBOQUANT_BITS", "3"))
     TURBOQUANT_DEVICE: str = os.getenv("TURBOQUANT_DEVICE", "cuda")
+
+    # Criptografia de secrets no banco (Fernet — Fase 21b)
+    # Gerar: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY", "")
+
+    # Rate limiting — Redis backend (opcional, para múltiplos workers)
+    # Se vazio, usa memória local (adequado para worker único)
+    REDIS_URL: str = os.getenv("REDIS_URL", "")

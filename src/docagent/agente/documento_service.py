@@ -63,15 +63,24 @@ class DocumentoService:
         await self.session.refresh(doc)
         return doc
 
-    async def delete(self, doc_id: int) -> bool:
+    async def delete(self, doc_id: int, agente_id: int | None = None) -> bool:
         """
         Remove os chunks do ChromaDB e o registro do banco.
+
+        Args:
+            doc_id: ID do documento a remover.
+            agente_id: Se fornecido, verifica que o documento pertence a este agente
+                       antes de deletar (previne IDOR cross-agente).
 
         Returns:
             True se deletado, False se não encontrado.
         """
         doc = await self.get_by_id(doc_id)
         if not doc:
+            return False
+
+        # Verificação de ownership: impede que um agente delete documentos de outro
+        if agente_id is not None and doc.agente_id != agente_id:
             return False
 
         collection_name = f"agente_{doc.agente_id}"
