@@ -1,49 +1,35 @@
 # Estado Atual — DocAgent / z3ndocs
 
-> Última atualização: 2026-04-12
+> Última atualização: 2026-04-13
 
 ---
 
-## Branch atual: `fase-21` — PR #27 aberto para main
+## Branch atual: `fase-23` — PR #28 aberto para main
 
-**PR:** [JuanLadeira/docagent#27](https://github.com/JuanLadeira/docagent/pull/27)
-**Status:** Testes passando (615 passed, 36 skipped). Aguardando merge.
+**PR:** [JuanLadeira/docagent#28](https://github.com/JuanLadeira/docagent/pull/28)
+**Status:** Testes passando (628 passed, 12 skipped). Aguardando merge.
 
 ---
 
-## O que está na fase-21
+## O que está na fase-23
 
-### Fase 19 — Persistência de Histórico de Chat
-- [x] `src/docagent/conversa/` — models (`Conversa`, `MensagemConversa`), schemas, services, router
-- [x] `GET /api/chat/conversas` com paginação, filtro por agente e arquivadas
-- [x] `POST /chat` enriquecido com `conversa_id` opcional (nova ou existente)
-- [x] `frontend/src/views/chat/` — sidebar de conversas, paginação, arquivar/restaurar
-- [x] Auto-seleção do primeiro agente ao montar `ChatView`
-- [x] Gravação e reprodução de áudio no chat UI (Fase 19 UI)
-- [x] Alembic: `l2m3n4o5p6q7_add_conversas.py`
-- [x] Testes: `tests/test_historico/`
+### Fase 23 — Escalabilidade (Redis + Celery)
 
-### Fase 21 — Segurança & Rate Limiting
-- [x] **21a** — `slowapi` rate limiting (login 5/min, chat 20/min por tenant, webhooks 100/min) + CORS restrito
-- [x] **21b** — `EncryptedString` Fernet: `bot_token`, `llm_api_key`, `elevenlabs_api_key`, `totp_secret`
-- [x] **21c** — Audit log: tabela `audit_log` + `AuditService` + `GET /api/admin/audit-logs`
-- [x] **21d** — 2FA TOTP para admin: setup, confirmação, login em dois fatores
-- [x] **21e** — Validação de origem: header `apikey` (WhatsApp) e `X-Telegram-Bot-Api-Secret-Token` (Telegram)
-- [x] **21f** — CORS (entregue junto com 21a)
-- [x] Alembic: 4 migrations (`n4o5p6...`, `o5p6q7...`, `p6q7r8...`, `q7r8s9...`)
-- [x] Testes: `tests/test_seguranca/` (40 testes)
-
-### Fixes (durante Fase 21)
-- [x] Áudio não reproduzia no painel: `<audio src>` sem auth → `fetch()` + `URL.createObjectURL`
-- [x] SSE usava `id: Date.now()` → backend agora inclui `mensagem_id` real nos payloads
-- [x] STT: modelo `"base"` → `"small"` + `condition_on_previous_text=False` + `initial_prompt` pt-BR
-- [x] Pentest interno: 4 vulnerabilidades corrigidas (ver abaixo)
-
-### Correções de segurança (pentest interno)
-- [x] **CRÍTICA** `tenant/router.py`: 5 endpoints CRUD públicos removidos
-- [x] **CRÍTICA** `usuario/router.py`: GET e PUT sem auth + DELETE sem check de tenant — corrigidos
-- [x] **HIGH** `agente/documento_service.py`: IDOR no DELETE de documentos — corrigido
-- [x] **HIGH** `atendimento/router.py`: path traversal no media endpoint — corrigido com `pathlib`
+- [x] `redis_client.py` — factory `get_redis_client()` → `redis.asyncio.Redis` ou `None`
+- [x] `chat/session.py` — `RedisSessionManager` (pickle + TTL 1h) + `InMemorySessionManager` como fallback
+- [x] `chat/service.py` — interface 100% async: `astream()` + `delete_session_async()`
+- [x] `atendimento/sse.py` — Redis Pub/Sub bridge pattern nos dois managers SSE
+- [x] `chat/router.py`, `telegram/router.py`, `whatsapp/router.py` — `TTLCache(maxsize=100, ttl=1800)` + `asyncio.Lock`
+- [x] `api.py` lifespan — injeta Redis nos managers SSE e `_session_manager`
+- [x] `dependencies.py` — variável de módulo substituível no lifespan (sem `@lru_cache`)
+- [x] `celery_app.py` — broker Redis DB1, backend DB2
+- [x] `tasks/ingestao.py` — `ingerir_documento_task` com retry (3x, 30s)
+- [x] `agente/router.py` — upload retorna `202 Accepted` + `task_id` quando Celery disponível
+- [x] `docker-compose.yml` — serviço `redis:7-alpine` (dev)
+- [x] `docker-compose.cloudflare.yml` — redis + celery-worker + celery-beat + `SKIP_MIGRATIONS=true`
+- [x] `compose/prod/api/entrypoint.sh` — guard `SKIP_MIGRATIONS` resolve crash-loop dos containers Celery
+- [x] Testes: `tests/test_escalabilidade/` com `fakeredis` (13 testes)
+- [x] Regressão: 628 passando, 12 skipped (integração de áudio)
 
 ---
 
@@ -65,6 +51,7 @@
 | 18 | Áudio STT + TTS (WhatsApp + Telegram) | main |
 | 19 | Persistência de Histórico de Chat | fase-21 (PR #27) |
 | 21 | Segurança & Rate Limiting + Pentest | fase-21 (PR #27) |
+| 23 | Escalabilidade — Redis + Celery | fase-23 (PR #28) |
 
 ---
 
@@ -74,7 +61,7 @@
 |------|------|------|
 | 20 | Fine-Tuning Pipeline | [raw/fase20](../raw/fase20-finetuning.md) |
 | 22 | Analytics & Observabilidade | [raw/fase22](../raw/fase22-analytics.md) |
-| 23 | Escalabilidade (Redis + Celery) | [raw/fase23](../raw/fase23-escalabilidade.md) |
+| 24 | Canal E-mail & Integrações n8n | [raw/fase24](../raw/fase24-email-n8n.md) |
 | 24 | Canal E-mail & Integrações n8n | [raw/fase24](../raw/fase24-email-n8n.md) |
 | 25 | Mobile App (PWA + Push) | [raw/fase25](../raw/fase25-pwa.md) |
 
@@ -85,7 +72,7 @@
 - **Domínio:** z3ndocs.uk (Cloudflare Registrar)
 - **Túnel:** Cloudflare Tunnel → PC local
 - **Compose prod:** `docker-compose.cloudflare.yml` + `.env.cloudflare`
-- **Serviços ativos:** api (8000), frontend nginx, evolution-api, postgres (2x), cloudflared
+- **Serviços ativos:** api (8000), frontend nginx, evolution-api, postgres (2x), redis, celery-worker, celery-beat, cloudflared
 - **Build:** `uv run task prod-build` → `docker compose -f docker-compose.cloudflare.yml --env-file .env.cloudflare up --build -d`
 
 ---

@@ -31,6 +31,7 @@
 | [fases/18.md](fases/18.md) | Áudio STT + TTS (WhatsApp + Telegram) | ✅ |
 | [fases/19.md](fases/19.md) | Persistência de Histórico de Chat | ✅ PR #27 |
 | [fases/21.md](fases/21.md) | Segurança & Rate Limiting + Pentest | ✅ PR #27 |
+| [fases/23.md](fases/23.md) | Escalabilidade — Redis + Celery | ✅ PR #28 |
 
 ---
 
@@ -45,6 +46,7 @@
 | [modulos/langgraph.md](modulos/langgraph.md) | `agents/`, `base_agent.py` | LangGraph StateGraph, ReAct, memória |
 | [modulos/mcp.md](modulos/mcp.md) | `mcp_server/` | Servidores MCP stdio, descoberta de tools |
 | [modulos/plano.md](modulos/plano.md) | `plano/`, `assinatura/` | Planos, quotas, assinaturas por tenant |
+| [modulos/escalabilidade.md](modulos/escalabilidade.md) | `redis_client.py`, `celery_app.py`, `tasks/` | Redis session/SSE, TTLCache, Celery |
 | [modulos/seguranca.md](modulos/seguranca.md) | `rate_limit/`, `crypto/`, `audit/` | Rate limiting, criptografia, audit log, 2FA |
 | [modulos/telegram.md](modulos/telegram.md) | `telegram/` | Bot Telegram, webhook, áudio |
 | [modulos/whatsapp.md](modulos/whatsapp.md) | `whatsapp/` | Evolution API v2, webhook, áudio |

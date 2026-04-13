@@ -5,6 +5,27 @@ Formato: `## [YYYY-MM-DD] tipo | descrição`
 
 ---
 
+## [2026-04-13] fase | Fase 23 — Escalabilidade Redis + Celery + PR #28
+
+- `redis_client.py`: factory `get_redis_client()` → asyncio Redis ou None
+- `chat/session.py`: `RedisSessionManager` (pickle + TTL 1h); `InMemorySessionManager` como fallback; `SessionManager` alias
+- `chat/service.py`: `astream()` async generator + `delete_session_async()` — interface 100% async
+- `atendimento/sse.py`: Redis Pub/Sub bridge nos dois managers SSE (atendimento + lista)
+- 3 routers (chat, telegram, whatsapp): `_agent_cache` → `TTLCache(maxsize=100, ttl=1800)` + `asyncio.Lock`
+- `api.py` lifespan: injeta Redis nos managers e `_session_manager`
+- `dependencies.py`: variável de módulo substituível (sem `@lru_cache`)
+- `celery_app.py` + `tasks/ingestao.py`: task `ingerir_documento` com retry 3x; upload retorna 202
+- `docker-compose.yml`: Redis dev (porta 6379)
+- `docker-compose.cloudflare.yml`: redis + celery-worker + celery-beat + volume `redis_data`
+- `entrypoint.sh`: guard `SKIP_MIGRATIONS=true` — resolve crash-loop dos containers Celery
+- `pyproject.toml`: `redis[asyncio]`, `cachetools`, `celery[redis]`, `fakeredis` (dev)
+- Testes: `tests/test_escalabilidade/` 13 testes com `fakeredis` + regressão 628 passando
+- Fix: `test_duckduckgo_usa_queries_homeoffice_com_modalidade` — trocado `asyncio.get_event_loop().run_until_complete()` por `@pytest.mark.asyncio`
+- Limpeza: removidos `tests/test_agent.py`, `test_doc_agent.py`, `test_tools.py` (módulos removidos, 23 testes em skip permanente)
+- PR #28 aberto para main
+
+---
+
 ## [2026-04-12] fase | Fase 21 — Segurança, Rate Limiting, Pentest + PR #27
 
 - `rate_limit.py`: slowapi, rate limits em auth/chat/webhooks, CORS
