@@ -5,6 +5,37 @@ Formato: `## [YYYY-MM-DD] tipo | descrição`
 
 ---
 
+## [2026-04-12] fase | Fase 21 — Segurança, Rate Limiting, Pentest + PR #27
+
+- `rate_limit.py`: slowapi, rate limits em auth/chat/webhooks, CORS
+- `crypto.py`: EncryptedString Fernet — bot_token, llm_api_key, elevenlabs_api_key, totp_secret
+- `audit/`: AuditLog ORM, AuditService.registrar() silent, GET /api/admin/audit-logs
+- `auth/totp.py`: TOTP 2FA para admin — setup, confirmar, desativar
+- `admin/router.py`: fluxo login 2FA com temp_token (JWT 5min)
+- `telegram/`: webhook_secret (21e), migration q7r8s9t0u1v2
+- `whatsapp/`: validação header apikey (21e)
+- 4 vulnerabilidades de pentest corrigidas (tenant CRUD público, usuario GET/PUT sem auth, IDOR docs, path traversal áudio)
+- Fix reprodução de áudio: fetch+blob ao invés de `<audio src>` sem auth
+- Fix SSE: inclui mensagem_id real do banco nos payloads
+- Fix STT: modelo "base" → "small" + parâmetros de qualidade
+- 40 testes em tests/test_seguranca/
+- PR #27 aberto para main
+
+---
+
+## [2026-04-11] fase | Fase 19 — Persistência de Histórico de Chat
+
+- `conversa/models.py`: Conversa, MensagemConversa
+- `conversa/router.py`: LIST (paginado), GET, DELETE (arquivar), POST (restaurar)
+- `POST /chat` enriquecido com conversa_id opcional
+- Frontend: sidebar de conversas, paginação, arquivar/restaurar
+- Auto-seleção primeiro agente ao montar ChatView
+- Gravação de áudio no chat UI
+- Migration l2m3n4o5p6q7_add_conversas.py
+- Testes: tests/test_historico/
+
+---
+
 ## [2026-04-10] wiki | Criação do LLM Wiki
 
 Migração de `docs/*.md` (specs de planejamento) para `docs/raw/`.

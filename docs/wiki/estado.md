@@ -1,46 +1,56 @@
 # Estado Atual — DocAgent / z3ndocs
 
-> Última atualização: 2026-04-10
+> Última atualização: 2026-04-12
 
 ---
 
-## Fase em andamento: 18 — Áudio STT + TTS
+## Branch atual: `fase-21` — PR #27 aberto para main
 
-**Branch:** `fase-18`
-**Sprint atual:** 7 (frontend) — concluído. Sprint 8 (regressão + Dockerfile) pendente.
+**PR:** [JuanLadeira/docagent#27](https://github.com/JuanLadeira/docagent/pull/27)
+**Status:** Testes passando (615 passed, 36 skipped). Aguardando merge.
 
-### O que foi implementado na Fase 18
+---
 
-- [x] `src/docagent/audio/models.py` — AudioConfig ORM + enums
-- [x] `src/docagent/audio/schemas.py` — AudioConfigPublic, AudioConfigUpdate
-- [x] `src/docagent/audio/services.py` — AudioService (resolver_config, transcrever, sintetizar)
-- [x] `src/docagent/audio/stt/faster_whisper.py` — singleton, asyncio.to_thread
-- [x] `src/docagent/audio/stt/openai_whisper.py` — POST à API OpenAI
-- [x] `src/docagent/audio/tts/piper.py` — subprocess + ffmpeg WAV→OGG
-- [x] `src/docagent/audio/tts/openai_tts.py` — POST à API OpenAI
-- [x] `src/docagent/audio/tts/elevenlabs.py` — POST à API ElevenLabs
-- [x] `src/docagent/audio/router.py` — 5 endpoints GET/PUT/DELETE
-- [x] `alembic/versions/k1l2m3n4o5p6_add_audio_config.py`
-- [x] `src/docagent/whatsapp/router.py` — detecção e processamento de audioMessage
-- [x] `src/docagent/telegram/router.py` — detecção de voice/audio + helpers
-- [x] `src/docagent/telegram/schemas.py` — TelegramVoice, TelegramAudio adicionados
-- [x] `frontend/src/api/audioClient.ts`
-- [x] `frontend/src/components/AudioConfigForm.vue`
-- [x] `frontend/src/views/user/SettingsView.vue` — aba "Áudio" adicionada
-- [x] `frontend/src/views/agentes/AgenteFormView.vue` — card Áudio no modo edição
-- [x] Testes: `tests/test_audio/` (conftest, service, stt, tts, router, whatsapp, telegram)
+## O que está na fase-21
 
-### Pendente na Fase 18
+### Fase 19 — Persistência de Histórico de Chat
+- [x] `src/docagent/conversa/` — models (`Conversa`, `MensagemConversa`), schemas, services, router
+- [x] `GET /api/chat/conversas` com paginação, filtro por agente e arquivadas
+- [x] `POST /chat` enriquecido com `conversa_id` opcional (nova ou existente)
+- [x] `frontend/src/views/chat/` — sidebar de conversas, paginação, arquivar/restaurar
+- [x] Auto-seleção do primeiro agente ao montar `ChatView`
+- [x] Gravação e reprodução de áudio no chat UI (Fase 19 UI)
+- [x] Alembic: `l2m3n4o5p6q7_add_conversas.py`
+- [x] Testes: `tests/test_historico/`
 
-- [ ] Sprint 8: rodar suite completa de regressão (`uv run pytest tests/ -v`)
-- [ ] Sprint 8: Dockerfile — `apt install ffmpeg`, pré-download modelos Piper e Whisper
+### Fase 21 — Segurança & Rate Limiting
+- [x] **21a** — `slowapi` rate limiting (login 5/min, chat 20/min por tenant, webhooks 100/min) + CORS restrito
+- [x] **21b** — `EncryptedString` Fernet: `bot_token`, `llm_api_key`, `elevenlabs_api_key`, `totp_secret`
+- [x] **21c** — Audit log: tabela `audit_log` + `AuditService` + `GET /api/admin/audit-logs`
+- [x] **21d** — 2FA TOTP para admin: setup, confirmação, login em dois fatores
+- [x] **21e** — Validação de origem: header `apikey` (WhatsApp) e `X-Telegram-Bot-Api-Secret-Token` (Telegram)
+- [x] **21f** — CORS (entregue junto com 21a)
+- [x] Alembic: 4 migrations (`n4o5p6...`, `o5p6q7...`, `p6q7r8...`, `q7r8s9...`)
+- [x] Testes: `tests/test_seguranca/` (40 testes)
+
+### Fixes (durante Fase 21)
+- [x] Áudio não reproduzia no painel: `<audio src>` sem auth → `fetch()` + `URL.createObjectURL`
+- [x] SSE usava `id: Date.now()` → backend agora inclui `mensagem_id` real nos payloads
+- [x] STT: modelo `"base"` → `"small"` + `condition_on_previous_text=False` + `initial_prompt` pt-BR
+- [x] Pentest interno: 4 vulnerabilidades corrigidas (ver abaixo)
+
+### Correções de segurança (pentest interno)
+- [x] **CRÍTICA** `tenant/router.py`: 5 endpoints CRUD públicos removidos
+- [x] **CRÍTICA** `usuario/router.py`: GET e PUT sem auth + DELETE sem check de tenant — corrigidos
+- [x] **HIGH** `agente/documento_service.py`: IDOR no DELETE de documentos — corrigido
+- [x] **HIGH** `atendimento/router.py`: path traversal no media endpoint — corrigido com `pathlib`
 
 ---
 
 ## Fases Completas
 
-| Fase | Tema | Branch mergeada |
-|------|------|-----------------|
+| Fase | Tema | Branch |
+|------|------|--------|
 | 1–7 | RAG, LangGraph, Memória, FastAPI, BaseAgent, Skills, Streamlit | main |
 | 8 | Auth JWT + Multi-tenant + Alembic | main |
 | 10 | Frontend Vue 3 | main |
@@ -52,16 +62,17 @@
 | 16 | Telegram Bot | main |
 | 17 | Planos + Assinaturas + Quotas | main |
 | 17b | Pipeline de Vagas | main |
+| 18 | Áudio STT + TTS (WhatsApp + Telegram) | main |
+| 19 | Persistência de Histórico de Chat | fase-21 (PR #27) |
+| 21 | Segurança & Rate Limiting + Pentest | fase-21 (PR #27) |
 
 ---
 
-## Próximas Fases (em ordem de prioridade)
+## Próximas Fases
 
 | Fase | Tema | Spec |
 |------|------|------|
-| 19 | Persistência de Histórico de Chat | [raw/fase19](../raw/fase19-historico-chat.md) |
 | 20 | Fine-Tuning Pipeline | [raw/fase20](../raw/fase20-finetuning.md) |
-| 21 | Segurança & Rate Limiting | [raw/fase21](../raw/fase21-seguranca.md) |
 | 22 | Analytics & Observabilidade | [raw/fase22](../raw/fase22-analytics.md) |
 | 23 | Escalabilidade (Redis + Celery) | [raw/fase23](../raw/fase23-escalabilidade.md) |
 | 24 | Canal E-mail & Integrações n8n | [raw/fase24](../raw/fase24-email-n8n.md) |
