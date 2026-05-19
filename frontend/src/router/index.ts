@@ -17,6 +17,11 @@ const router = createRouter({
       name: 'reset-password',
       component: () => import('@/views/auth/ResetPasswordView.vue'),
     },
+    {
+      path: '/auth/callback',
+      name: 'keycloak-callback',
+      component: () => import('@/views/auth/KeycloakCallbackView.vue'),
+    },
 
     // Autenticadas
     {

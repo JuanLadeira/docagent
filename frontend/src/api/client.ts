@@ -32,6 +32,13 @@ apiClient.interceptors.response.use(
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export interface PublicConfig {
+  keycloak_enabled: boolean
+  keycloak_url: string
+  keycloak_realm: string
+  keycloak_client_id: string
+}
+
 export interface Usuario {
   id: number
   username: string
@@ -182,9 +189,12 @@ export interface McpServer {
   id: number
   nome: string
   descricao: string
+  transport: string
   command: string
   args: string[]
   env: Record<string, string>
+  url: string | null
+  auth_type: string
   ativo: boolean
   tools: McpTool[]
 }
@@ -232,9 +242,12 @@ export interface ConversaListResponse {
 export interface McpServerCreate {
   nome: string
   descricao: string
+  transport: string
   command: string
   args: string[]
   env: Record<string, string>
+  url: string | null
+  auth_type: string
   ativo: boolean
 }
 
@@ -246,6 +259,8 @@ export const api = {
     ),
 
   getMe: () => apiClient.get<Usuario>('/usuarios/me'),
+
+  getPublicConfig: () => axios.get<PublicConfig>('/api/config/public'),
 
   forgotPassword: (email: string) =>
     axios.post('/auth/forgot-password', { email }),

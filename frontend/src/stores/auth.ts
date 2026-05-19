@@ -56,5 +56,19 @@ export const useAuthStore = defineStore('auth', () => {
     router.push('/login')
   }
 
-  return { token, username, tenantId, userId, role, isAuthenticated, isOwner, login, logout }
+  async function setTokenFromKeycloak(accessToken: string) {
+    token.value = accessToken
+    sessionStorage.setItem('token', accessToken)
+    const me = await api.getMe()
+    tenantId.value = me.data.tenant_id
+    userId.value = me.data.id
+    role.value = me.data.role
+    username.value = me.data.username
+    sessionStorage.setItem('tenant_id', String(me.data.tenant_id))
+    sessionStorage.setItem('user_id', String(me.data.id))
+    sessionStorage.setItem('role', me.data.role)
+    sessionStorage.setItem('username', me.data.username)
+  }
+
+  return { token, username, tenantId, userId, role, isAuthenticated, isOwner, login, logout, setTokenFromKeycloak }
 })

@@ -34,6 +34,7 @@ from docagent.vagas.router import router as vagas_router
 from docagent.audio.router import router as audio_router
 from docagent.conversa.router import router as conversa_router
 from docagent.audit.router import router as audit_router
+from docagent.keycloak.router import router as keycloak_router, config_router as keycloak_config_router
 
 load_dotenv()
 
@@ -56,6 +57,7 @@ async def lifespan(app: FastAPI):
         atendimento_sse_manager._redis = redis_client
         atendimento_lista_sse_manager._redis = redis_client
         _deps._session_manager = RedisSessionManager(redis_client)
+        app.state.redis = redis_client
         print("[startup] Redis conectado — session e SSE em modo distribuído.")
 
     # Aquece Ollama (somente quando llm_mode=local)
@@ -73,6 +75,8 @@ async def lifespan(app: FastAPI):
 
     if redis_client is not None:
         await redis_client.aclose()
+        if hasattr(app.state, "redis"):
+            del app.state.redis
         print("[shutdown] Redis desconectado.")
 
 
@@ -130,3 +134,7 @@ app.include_router(conversa_router)
 
 # Audit Log (Fase 21c)
 app.include_router(audit_router)
+
+# Keycloak SSO
+app.include_router(keycloak_router)
+app.include_router(keycloak_config_router)

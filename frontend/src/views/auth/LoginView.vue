@@ -1,12 +1,24 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { api } from '@/api/client'
 
 const auth = useAuthStore()
 const username = ref('')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
+const keycloakEnabled = ref(false)
+const keycloakLoginUrl = '/auth/keycloak/login'
+
+onMounted(async () => {
+  try {
+    const resp = await api.getPublicConfig()
+    keycloakEnabled.value = resp.data.keycloak_enabled
+  } catch {
+    keycloakEnabled.value = false
+  }
+})
 
 async function handleSubmit() {
   if (!username.value || !password.value) return
@@ -72,6 +84,24 @@ async function handleSubmit() {
           <RouterLink to="/forgot-password" class="text-indigo-400 hover:text-indigo-300 text-sm">
             Esqueceu a senha?
           </RouterLink>
+        </div>
+
+        <div v-if="keycloakEnabled" class="mt-4">
+          <div class="relative">
+            <div class="absolute inset-0 flex items-center">
+              <div class="w-full border-t border-slate-600"></div>
+            </div>
+            <div class="relative flex justify-center text-xs">
+              <span class="px-2 bg-slate-800 text-slate-500">ou</span>
+            </div>
+          </div>
+          <a
+            :href="keycloakLoginUrl"
+            class="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-600 px-4 py-3 text-sm text-slate-300 hover:bg-slate-700 transition-colors"
+          >
+            <span>🔑</span>
+            Entrar com Keycloak
+          </a>
         </div>
       </div>
 

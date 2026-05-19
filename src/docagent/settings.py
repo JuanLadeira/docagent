@@ -44,3 +44,14 @@ class Settings:
     # Rate limiting — Redis backend (opcional, para múltiplos workers)
     # Se vazio, usa memória local (adequado para worker único)
     REDIS_URL: str = os.getenv("REDIS_URL", "")
+
+    # Keycloak SSO (opcional — se KEYCLOAK_URL vazio, SSO desabilitado)
+    KEYCLOAK_URL: str = os.getenv("KEYCLOAK_URL", "")
+    KEYCLOAK_INTERNAL_URL: str = os.getenv("KEYCLOAK_INTERNAL_URL", "")
+    KEYCLOAK_REALM: str = os.getenv("KEYCLOAK_REALM", "docagent")
+    KEYCLOAK_CLIENT_ID: str = os.getenv("KEYCLOAK_CLIENT_ID", "docagent-backend")
+    KEYCLOAK_CLIENT_SECRET: str = os.getenv("KEYCLOAK_CLIENT_SECRET", "")
+    KEYCLOAK_REDIRECT_URI: str = os.getenv(
+        "KEYCLOAK_REDIRECT_URI", "http://localhost:8765/auth/keycloak/callback"
+    )
+    KEYCLOAK_DEFAULT_TENANT_ID: int = int(os.getenv("KEYCLOAK_DEFAULT_TENANT_ID", "1"))

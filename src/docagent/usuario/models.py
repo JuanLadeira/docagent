@@ -35,6 +35,9 @@ class Usuario(Base):
         server_default="MEMBER",
         nullable=False,
     )
+    keycloak_sub: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
+    )
 
     # Foreign key
     tenant_id: Mapped[int] = mapped_column(

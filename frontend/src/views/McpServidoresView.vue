@@ -13,9 +13,12 @@ const salvando = ref(false)
 const form = ref({
   nome: '',
   descricao: '',
+  transport: 'stdio',
   command: '',
   args: '',
   env: '',
+  url: '',
+  auth_type: 'none',
   ativo: true,
 })
 
@@ -31,7 +34,7 @@ async function carregar() {
 
 function abrirCriar() {
   editando.value = null
-  form.value = { nome: '', descricao: '', command: '', args: '', env: '', ativo: true }
+  form.value = { nome: '', descricao: '', transport: 'stdio', command: '', args: '', env: '', url: '', auth_type: 'none', ativo: true }
   showModal.value = true
 }
 
@@ -40,9 +43,12 @@ function abrirEditar(server: McpServer) {
   form.value = {
     nome: server.nome,
     descricao: server.descricao,
+    transport: server.transport,
     command: server.command,
     args: server.args.join('\n'),
     env: Object.entries(server.env).map(([k, v]) => `${k}=${v}`).join('\n'),
+    url: server.url ?? '',
+    auth_type: server.auth_type ?? 'none',
     ativo: server.ativo,
   }
   showModal.value = true
@@ -62,15 +68,21 @@ function parseEnv(raw: string): Record<string, string> {
 }
 
 async function salvar() {
-  if (!form.value.nome.trim() || !form.value.command.trim() || salvando.value) return
+  const isStdio = form.value.transport === 'stdio'
+  if (!form.value.nome.trim() || salvando.value) return
+  if (isStdio && !form.value.command.trim()) return
+  if (!isStdio && !form.value.url.trim()) return
   salvando.value = true
   try {
     const payload = {
       nome: form.value.nome.trim(),
       descricao: form.value.descricao.trim(),
+      transport: form.value.transport,
       command: form.value.command.trim(),
       args: parseArgs(form.value.args),
       env: parseEnv(form.value.env),
+      url: form.value.url.trim() || null,
+      auth_type: form.value.auth_type,
       ativo: form.value.ativo,
     }
     if (editando.value) {
@@ -150,9 +162,13 @@ onMounted(carregar)
               >
                 {{ server.ativo ? 'Ativo' : 'Inativo' }}
               </span>
+              <span class="text-xs px-1.5 py-0.5 rounded-full font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 uppercase">
+                {{ server.transport }}
+              </span>
             </div>
-            <div class="text-xs text-gray-400 dark:text-slate-500 mt-0.5 font-mono">
-              {{ server.command }} {{ server.args.join(' ') }}
+            <div class="text-xs text-gray-400 dark:text-slate-500 mt-0.5 font-mono truncate">
+              <template v-if="server.transport === 'sse'">{{ server.url }}</template>
+              <template v-else>{{ server.command }} {{ server.args.join(' ') }}</template>
             </div>
             <div v-if="server.descricao" class="text-xs text-gray-500 dark:text-slate-400 mt-0.5">{{ server.descricao }}</div>
           </div>
@@ -245,24 +261,73 @@ onMounted(carregar)
           </div>
 
           <div>
-            <label class="block text-xs font-medium text-gray-600 dark:text-slate-300 mb-1">Comando *</label>
-            <input
-              v-model="form.command"
-              type="text"
-              placeholder="npx"
-              class="w-full px-3 py-2 text-sm font-mono border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <label class="block text-xs font-medium text-gray-600 dark:text-slate-300 mb-2">Transporte *</label>
+            <div class="flex gap-3">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input v-model="form.transport" type="radio" value="stdio" class="accent-indigo-600" />
+                <span class="text-sm text-gray-700 dark:text-slate-200">stdio</span>
+                <span class="text-xs text-gray-400 dark:text-slate-500">(subprocesso local)</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input v-model="form.transport" type="radio" value="sse" class="accent-indigo-600" />
+                <span class="text-sm text-gray-700 dark:text-slate-200">SSE</span>
+                <span class="text-xs text-gray-400 dark:text-slate-500">(servidor HTTP)</span>
+              </label>
+            </div>
           </div>
 
           <div>
-            <label class="block text-xs font-medium text-gray-600 dark:text-slate-300 mb-1">
-              Args <span class="text-gray-400 dark:text-slate-500">(um por linha)</span>
-            </label>
-            <textarea
-              v-model="form.args"
-              rows="3"
-              placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;/tmp"
-              class="w-full px-3 py-2 text-sm font-mono border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+            <label class="block text-xs font-medium text-gray-600 dark:text-slate-300 mb-2">Autenticação</label>
+            <div class="flex gap-3 flex-wrap">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input v-model="form.auth_type" type="radio" value="none" class="accent-indigo-600" />
+                <span class="text-sm text-gray-700 dark:text-slate-200">Nenhuma</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input v-model="form.auth_type" type="radio" value="static" class="accent-indigo-600" />
+                <span class="text-sm text-gray-700 dark:text-slate-200">Token estático</span>
+                <span class="text-xs text-gray-400 dark:text-slate-500">(env Authorization=)</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input v-model="form.auth_type" type="radio" value="keycloak" class="accent-indigo-600" />
+                <span class="text-sm text-gray-700 dark:text-slate-200">Keycloak</span>
+                <span class="text-xs text-gray-400 dark:text-slate-500">(token do usuário logado)</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- stdio: comando + args -->
+          <template v-if="form.transport === 'stdio'">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 dark:text-slate-300 mb-1">Comando *</label>
+              <input
+                v-model="form.command"
+                type="text"
+                placeholder="npx"
+                class="w-full px-3 py-2 text-sm font-mono border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 dark:text-slate-300 mb-1">
+                Args <span class="text-gray-400 dark:text-slate-500">(um por linha)</span>
+              </label>
+              <textarea
+                v-model="form.args"
+                rows="3"
+                placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;/tmp"
+                class="w-full px-3 py-2 text-sm font-mono border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              />
+            </div>
+          </template>
+
+          <!-- sse: url -->
+          <div v-else>
+            <label class="block text-xs font-medium text-gray-600 dark:text-slate-300 mb-1">URL *</label>
+            <input
+              v-model="form.url"
+              type="url"
+              placeholder="http://servidor/api/method/neo.neo_mcp.mcp.mcp_endpoint"
+              class="w-full px-3 py-2 text-sm font-mono border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
 
@@ -273,7 +338,7 @@ onMounted(carregar)
             <textarea
               v-model="form.env"
               rows="2"
-              placeholder="GITHUB_TOKEN=ghp_xxx"
+              :placeholder="form.transport === 'sse' ? 'Authorization=Bearer <token>' : 'GITHUB_TOKEN=ghp_xxx'"
               class="w-full px-3 py-2 text-sm font-mono border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
             />
           </div>
@@ -288,7 +353,7 @@ onMounted(carregar)
           </button>
           <button
             class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-500 disabled:opacity-50 transition-colors"
-            :disabled="salvando || !form.nome.trim() || !form.command.trim()"
+            :disabled="salvando || !form.nome.trim() || (form.transport === 'stdio' ? !form.command.trim() : !form.url.trim())"
             @click="salvar"
           >
             {{ salvando ? 'Salvando...' : editando ? 'Salvar alterações' : 'Registrar servidor' }}
