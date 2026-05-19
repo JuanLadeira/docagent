@@ -1,0 +1,44 @@
+{
+  "realm": "docagent",
+  "enabled": true,
+  "displayName": "DocAgent",
+  "clients": [
+    {
+      "clientId": "docagent-backend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "dev-secret-change-in-prod",
+      "redirectUris": [
+        "http://localhost:8000/auth/keycloak/callback",
+        "http://api:8000/auth/keycloak/callback"
+      ],
+      "webOrigins": ["http://localhost:5173", "http://localhost:8000"],
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "teste",
+      "email": "teste@docagent.local",
+      "firstName": "Usuário",
+      "lastName": "Teste",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "teste123",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "requiredCredentials": ["password"],
+  "defaultRoles": ["uma_authorization"],
+  "smtpServer": {}
+}
