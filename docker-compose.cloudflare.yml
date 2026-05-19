@@ -49,6 +49,15 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save 60 1 --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -73,13 +82,58 @@ services:
       ADMIN_DEFAULT_PASSWORD: "${ADMIN_DEFAULT_PASSWORD}"
       LANGSMITH_API_KEY: "${LANGSMITH_API_KEY:-}"
       LANGSMITH_PROJECT: "${LANGSMITH_PROJECT:-docagent}"
+      REDIS_URL: "redis://redis:6379/0"
     depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: compose/prod/api/Dockerfile
+    command: uv run celery -A docagent.celery_app worker --loglevel=info --concurrency=2
+    volumes:
+      - ./data:/app/data
+      - ./mcp_servers:/app/mcp_servers
+    environment:
+      DOCAGENT_DB_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+      REDIS_URL: "redis://redis:6379/0"
+      SECRET_KEY: "${SECRET_KEY}"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL}"
+      LLM_MODEL: "${LLM_MODEL}"
+      EMBED_MODEL: "${EMBED_MODEL}"
+      SKIP_MIGRATIONS: "true"
+    depends_on:
+      redis:
+        condition: service_started
       postgres:
         condition: service_healthy
     networks:
       - internal
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: compose/prod/api/Dockerfile
+    command: uv run celery -A docagent.celery_app beat --loglevel=info
+    environment:
+      REDIS_URL: "redis://redis:6379/0"
+      SKIP_MIGRATIONS: "true"
+    depends_on:
+      redis:
+        condition: service_started
+    networks:
+      - internal
     restart: unless-stopped
 
   frontend:
@@ -138,3 +192,4 @@ volumes:
   postgres_data:
   postgres_evolution_data:
   evolution_data:
+  redis_data:

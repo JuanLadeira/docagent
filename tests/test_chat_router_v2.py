@@ -12,11 +12,18 @@ from fastapi.testclient import TestClient
 
 def make_mock_service(answer="resposta mock"):
     service = MagicMock()
-    service.stream.return_value = iter([
+
+    _chunks = [
         f"data: {json.dumps({'type': 'answer', 'content': answer})}\n\n",
         f"data: {json.dumps({'type': 'done'})}\n\n",
-    ])
-    service.delete_session.return_value = True
+    ]
+
+    async def _astream(*args, **kwargs):
+        for chunk in _chunks:
+            yield chunk
+
+    service.astream = _astream
+    service.delete_session_async = AsyncMock(return_value=True)
     return service
 
 

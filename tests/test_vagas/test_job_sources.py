@@ -606,7 +606,8 @@ async def test_job_searcher_descarta_vagas_sem_atributo_modalidade(db_session, t
     assert resultado["vagas"][0]["titulo"] == "Dev Python"
 
 
-def test_duckduckgo_usa_queries_homeoffice_com_modalidade():
+@pytest.mark.asyncio
+async def test_duckduckgo_usa_queries_homeoffice_com_modalidade():
     """DuckDuckGoSource deve usar templates de homeoffice quando _modalidade=HOMEOFFICE."""
     mock_tool = MagicMock()
     mock_tool.arun = AsyncMock(return_value="[]")
@@ -614,8 +615,7 @@ def test_duckduckgo_usa_queries_homeoffice_com_modalidade():
     source = DuckDuckGoSource(tool=mock_tool)
     perfil = {"cargo_desejado": "Dev Python", "_modalidade": "HOMEOFFICE"}
 
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(source.buscar(perfil))
+    await source.buscar(perfil)
 
     # Verifica que alguma query contém termo de homeoffice
     calls = [str(call) for call in mock_tool.arun.call_args_list]

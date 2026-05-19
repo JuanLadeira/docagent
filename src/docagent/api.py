@@ -16,6 +16,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from docagent.rate_limit import limiter
+from docagent.redis_client import get_redis_client
 
 from docagent.chat.router import router as chat_router
 from docagent.rag.router import router as documents_router
@@ -44,7 +45,20 @@ if os.getenv("LANGSMITH_API_KEY"):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Aquece o modelo Ollama no startup (somente quando llm_mode=local)."""
+    """Startup: aquece Ollama e conecta Redis se disponível."""
+    # Redis — injetado nos SSE managers e no session manager
+    import docagent.dependencies as _deps
+    from docagent.atendimento.sse import atendimento_sse_manager, atendimento_lista_sse_manager
+    from docagent.chat.session import RedisSessionManager
+
+    redis_client = get_redis_client()
+    if redis_client is not None:
+        atendimento_sse_manager._redis = redis_client
+        atendimento_lista_sse_manager._redis = redis_client
+        _deps._session_manager = RedisSessionManager(redis_client)
+        print("[startup] Redis conectado — session e SSE em modo distribuído.")
+
+    # Aquece Ollama (somente quando llm_mode=local)
     if os.getenv("LLM_PROVIDER", "ollama") == "ollama":
         try:
             from docagent.agent.llm_factory import get_llm
@@ -54,7 +68,12 @@ async def lifespan(app: FastAPI):
             print("[startup] Modelo aquecido.")
         except Exception as e:
             print(f"[startup] Warmup falhou (Ollama offline?): {e}")
+
     yield
+
+    if redis_client is not None:
+        await redis_client.aclose()
+        print("[shutdown] Redis desconectado.")
 
 
 app = FastAPI(title="DocAgent API", version="3.0.0", lifespan=lifespan)

@@ -18,11 +18,18 @@ from fastapi.testclient import TestClient
 def make_mock_service(answer="RAG e uma tecnica de busca semantica."):
     """ChatService mockado que emite SSE valido com resposta padrao."""
     service = MagicMock()
-    service.stream.return_value = iter([
+
+    _chunks = [
         f"data: {json.dumps({'type': 'answer', 'content': answer})}\n\n",
         f"data: {json.dumps({'type': 'done'})}\n\n",
-    ])
-    service.delete_session.return_value = True
+    ]
+
+    async def _astream(*args, **kwargs):
+        for chunk in _chunks:
+            yield chunk
+
+    service.astream = _astream
+    service.delete_session_async = AsyncMock(return_value=True)
     return service
 
 
@@ -41,8 +48,9 @@ def _mock_mcp_service():
 
 def _mock_session_manager(delete_returns=True):
     sm = MagicMock()
-    sm.delete.return_value = delete_returns
-    sm.get.return_value = {"messages": [], "summary": ""}
+    sm.get_async = AsyncMock(return_value={"messages": [], "summary": ""})
+    sm.update_async = AsyncMock()
+    sm.delete_async = AsyncMock(return_value=delete_returns)
     return sm
 
 

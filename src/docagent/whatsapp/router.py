@@ -19,6 +19,8 @@ import logging
 import re
 from contextlib import AsyncExitStack
 
+from cachetools import TTLCache
+
 import httpx
 from fastapi import APIRouter, HTTPException, Request, status
 
@@ -55,9 +57,10 @@ router = APIRouter(
 )
 
 # Cache de agentes construídos, keyed por (agente_id, skill_names, system_prompt).
-# Invalida automaticamente quando a configuração do agente muda.
+# TTLCache: expira após 30 min, máx 100 entradas.
 # Agentes com skills mcp:* NÃO são cacheados — precisam de conexão ativa por requisição.
-_agent_cache: dict[tuple, BaseAgent] = {}
+_agent_cache: TTLCache = TTLCache(maxsize=100, ttl=1800)
+_cache_lock = asyncio.Lock()
 
 
 def _tem_skills_mcp(agente_obj: Agente) -> bool:
@@ -79,7 +82,7 @@ def _build_agent_obj(agente_obj: Agente, extra_tools: list | None = None, llm=No
     ).build()
 
 
-def _get_or_build_agent(agente_obj: Agente, llm=None, llm_provider: str = "", llm_model: str = "") -> BaseAgent:
+async def _get_or_build_agent(agente_obj: Agente, llm=None, llm_provider: str = "", llm_model: str = "") -> BaseAgent:
     """Retorna o agente cacheado ou constrói um novo se a config mudou.
     Agentes com skills MCP nunca são cacheados — use _build_agent_obj diretamente."""
     cache_key = (
@@ -89,9 +92,10 @@ def _get_or_build_agent(agente_obj: Agente, llm=None, llm_provider: str = "", ll
         llm_provider,
         llm_model,
     )
-    if cache_key not in _agent_cache:
-        _agent_cache[cache_key] = _build_agent_obj(agente_obj, llm=llm)
-    return _agent_cache[cache_key]
+    async with _cache_lock:
+        if cache_key not in _agent_cache:
+            _agent_cache[cache_key] = _build_agent_obj(agente_obj, llm=llm)
+        return _agent_cache[cache_key]
 
 
 async def _get_instancia_or_404(instancia_id: int, current_user: CurrentUser, service: WhatsappServiceDep):
@@ -393,7 +397,7 @@ async def _executar_agente_whatsapp(
 ) -> str:
     """Executa o agente LangGraph para o caminho de áudio e retorna a resposta em texto."""
     sessions = get_session_manager()
-    state = sessions.get(session_id)
+    state = await sessions.get_async(session_id)
     loop = asyncio.get_event_loop()
 
     from docagent.agent.llm_factory import get_tenant_llm
@@ -426,11 +430,11 @@ async def _executar_agente_whatsapp(
         if extra:
             agent = _build_agent_obj(agente_obj, extra_tools=extra, llm=tenant_llm)
         else:
-            agent = _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider, llm_model="")
+            agent = await _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider, llm_model="")
         final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
 
     if agent.last_state:
-        sessions.update(session_id, agent.last_state)
+        await sessions.update_async(session_id, agent.last_state)
 
     if handoff_flag["requested"]:
         async with AsyncSessionLocal() as db:
@@ -777,7 +781,7 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
 
         # Caminho de texto — lógica original preservada
         sessions = get_session_manager()
-        state = sessions.get(session_id)
+        state = await sessions.get_async(session_id)
         loop = asyncio.get_event_loop()
 
         from docagent.agent.llm_factory import get_tenant_llm
@@ -811,10 +815,10 @@ async def _processar_mensagem_recebida(evento: WebhookEvento) -> None:
             if extra:
                 agent = _build_agent_obj(agente_obj, extra_tools=extra, llm=tenant_llm)
             else:
-                agent = _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider, llm_model=llm_model)
+                agent = await _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider, llm_model=llm_model)
             final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
         if agent.last_state:
-            sessions.update(session_id, agent.last_state)
+            await sessions.update_async(session_id, agent.last_state)
 
         if handoff_flag['requested']:
             async with AsyncSessionLocal() as db:

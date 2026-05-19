@@ -13,11 +13,18 @@ from fastapi.testclient import TestClient
 def make_mock_service(answer="resposta mock"):
     """ChatService mockado que emite SSE valido."""
     service = MagicMock()
-    service.stream.return_value = iter([
+
+    _chunks = [
         f"data: {json.dumps({'type': 'answer', 'content': answer})}\n\n",
         f"data: {json.dumps({'type': 'done'})}\n\n",
-    ])
-    service.delete_session.return_value = True
+    ]
+
+    async def _astream(*args, **kwargs):
+        for chunk in _chunks:
+            yield chunk
+
+    service.astream = _astream
+    service.delete_session_async = AsyncMock(return_value=True)
     return service
 
 
@@ -36,8 +43,9 @@ def _mock_mcp_service():
 
 def _mock_session_manager(delete_returns=True):
     sm = MagicMock()
-    sm.delete.return_value = delete_returns
-    sm.get.return_value = {"messages": [], "summary": ""}
+    sm.get_async = AsyncMock(return_value={"messages": [], "summary": ""})
+    sm.update_async = AsyncMock()
+    sm.delete_async = AsyncMock(return_value=delete_returns)
     return sm
 
 
@@ -98,7 +106,7 @@ def client_with_missing_session():
 
     mock_service = make_mock_service()
     _setup_overrides(app, session_delete_returns=False)
-    mock_service.delete_session.return_value = False
+    mock_service.delete_session_async = AsyncMock(return_value=False)
 
     mock_llm = MagicMock()
     mock_conversa = MagicMock(id=1, titulo=None)

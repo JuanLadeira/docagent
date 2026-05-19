@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+if [ "${SKIP_MIGRATIONS:-false}" = "true" ]; then
+  echo "[entrypoint] SKIP_MIGRATIONS=true — pulando migrações e seed."
+  exec "$@"
+fi
+
 echo "[entrypoint] Rodando migrações Alembic..."
 uv run alembic upgrade head
 echo "[entrypoint] Migrações aplicadas."

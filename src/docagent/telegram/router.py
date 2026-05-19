@@ -12,6 +12,8 @@ import asyncio
 import logging
 from contextlib import AsyncExitStack
 
+from cachetools import TTLCache
+
 from fastapi import APIRouter, HTTPException, Request, status
 
 from docagent.rate_limit import limiter
@@ -52,8 +54,9 @@ router = APIRouter(
 
 _log = logging.getLogger("docagent.telegram")
 
-# Cache de agentes construídos — mesma estratégia do whatsapp/router.py
-_agent_cache: dict[tuple, BaseAgent] = {}
+# Cache de agentes construídos — TTLCache: expira após 30 min, máx 100 entradas.
+_agent_cache: TTLCache = TTLCache(maxsize=100, ttl=1800)
+_cache_lock = asyncio.Lock()
 
 
 def _tem_skills_mcp(agente_obj: Agente) -> bool:
@@ -75,11 +78,12 @@ def _build_agent_obj(agente_obj: Agente, extra_tools: list | None = None, llm=No
     ).build()
 
 
-def _get_or_build_agent(agente_obj: Agente, llm=None, llm_provider: str = "", llm_model: str = "") -> BaseAgent:
+async def _get_or_build_agent(agente_obj: Agente, llm=None, llm_provider: str = "", llm_model: str = "") -> BaseAgent:
     cache_key = (agente_obj.id, tuple(agente_obj.skill_names), agente_obj.system_prompt or "", llm_provider, llm_model)
-    if cache_key not in _agent_cache:
-        _agent_cache[cache_key] = _build_agent_obj(agente_obj, llm=llm)
-    return _agent_cache[cache_key]
+    async with _cache_lock:
+        if cache_key not in _agent_cache:
+            _agent_cache[cache_key] = _build_agent_obj(agente_obj, llm=llm)
+        return _agent_cache[cache_key]
 
 
 # ── CRUD de instâncias ────────────────────────────────────────────────────────
@@ -205,7 +209,7 @@ async def _executar_agente_telegram(
 ) -> str:
     """Executa o agente LangGraph para o caminho de áudio e retorna a resposta."""
     sessions = get_session_manager()
-    state = sessions.get(session_id)
+    state = await sessions.get_async(session_id)
     loop = asyncio.get_event_loop()
 
     from docagent.agent.llm_factory import get_tenant_llm
@@ -229,11 +233,11 @@ async def _executar_agente_telegram(
             agent = _build_agent_obj(agente_obj, extra_tools=mcp_tools, llm=tenant_llm)
             final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
     else:
-        agent = _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider)
+        agent = await _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider)
         final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
 
     if agent.last_state:
-        sessions.update(session_id, agent.last_state)
+        await sessions.update_async(session_id, agent.last_state)
 
     answer = ""
     if final_state and final_state.get("messages"):
@@ -481,7 +485,7 @@ async def _executar_agente_e_salvar(
     audio_config=None,
 ) -> None:
     sessions = get_session_manager()
-    state = sessions.get(session_id)
+    state = await sessions.get_async(session_id)
     loop = asyncio.get_event_loop()
 
     # Carregar LLM do tenant (respeita llm_mode global do sistema)
@@ -517,11 +521,11 @@ async def _executar_agente_e_salvar(
         if extra:
             agent = _build_agent_obj(agente_obj, extra_tools=extra, llm=tenant_llm)
         else:
-            agent = _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider, llm_model=llm_model)
+            agent = await _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider, llm_model=llm_model)
         final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
 
     if agent.last_state:
-        sessions.update(session_id, agent.last_state)
+        await sessions.update_async(session_id, agent.last_state)
 
     # Se a LLM acionou a tool de handoff, sinalizar no atendimento.
     if handoff_flag['requested']:
@@ -614,7 +618,7 @@ async def _executar_e_responder_direto(
 ) -> None:
     """Executa agente e responde diretamente sem criar atendimento."""
     sessions = get_session_manager()
-    state = sessions.get(session_id)
+    state = await sessions.get_async(session_id)
     loop = asyncio.get_event_loop()
 
     from docagent.agent.llm_factory import get_tenant_llm
@@ -622,11 +626,11 @@ async def _executar_e_responder_direto(
         tenant_llm = await get_tenant_llm(instancia.tenant_id, llm_db)
     llm_provider = getattr(tenant_llm, "model_name", "") or getattr(tenant_llm, "model", "") or ""
 
-    agent = _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider)
+    agent = await _get_or_build_agent(agente_obj, llm=tenant_llm, llm_provider=llm_provider)
     final_state = await loop.run_in_executor(None, agent.run, conteudo, state)
 
     if agent.last_state:
-        sessions.update(session_id, agent.last_state)
+        await sessions.update_async(session_id, agent.last_state)
 
     answer = ""
     if final_state and final_state.get("messages"):
