@@ -16,7 +16,17 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': { target: 'http://api:8000', changeOrigin: true },
-      '/auth': { target: 'http://api:8000', changeOrigin: true },
+      '/auth': {
+        target: 'http://api:8000',
+        changeOrigin: true,
+        bypass(req) {
+          // Se for a rota de callback do Keycloak, retorna o index.html (SPA fallback)
+          // Isso deve ser resolvido pelo Frontend na porta do host (8765 -> callback)
+          if (req.url?.includes('/auth/callback')) {
+            return '/index.html'
+          }
+        },
+      },
       '/agents': { target: 'http://api:8000', changeOrigin: true },
       '/health': { target: 'http://api:8000', changeOrigin: true },
       '/documents': { target: 'http://api:8000', changeOrigin: true },

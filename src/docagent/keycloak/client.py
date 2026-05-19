@@ -6,14 +6,15 @@ from jwt import PyJWKClient
 
 
 class KeycloakClient:
-    def __init__(self, url: str, realm: str, client_id: str, client_secret: str):
+    def __init__(self, url: str, realm: str, client_id: str, client_secret: str, internal_url: str = None):
         self.url = url.rstrip("/")
+        self.internal_url = (internal_url or url).rstrip("/")
         self.realm = realm
         self.client_id = client_id
         self.client_secret = client_secret
-        self._token_url = f"{self.url}/realms/{realm}/protocol/openid-connect/token"
+        self._token_url = f"{self.internal_url}/realms/{realm}/protocol/openid-connect/token"
         self._auth_url = f"{self.url}/realms/{realm}/protocol/openid-connect/auth"
-        self._jwks_uri = f"{self.url}/realms/{realm}/protocol/openid-connect/certs"
+        self._jwks_uri = f"{self.internal_url}/realms/{realm}/protocol/openid-connect/certs"
         # PyJWKClient faz cache das chaves por `lifespan` segundos
         self._jwks_client = PyJWKClient(self._jwks_uri, cache_keys=True, lifespan=600)
 

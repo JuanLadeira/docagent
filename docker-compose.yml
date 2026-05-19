@@ -5,7 +5,7 @@ services:
       dockerfile: compose/dev/api/Dockerfile
     command: uv run uvicorn docagent.api:app --host 0.0.0.0 --port 8000 --reload --timeout-graceful-shutdown 3
     ports:
-      - "8000:8000"
+      - "8765:8000"
     env_file: .env
     environment:
       OLLAMA_BASE_URL: http://host.docker.internal:11434
@@ -121,7 +121,7 @@ services:
       retries: 5
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26
+    image: quay.io/keycloak/keycloak:26.0
     command: start-dev --import-realm
     environment:
       KC_DB: postgres

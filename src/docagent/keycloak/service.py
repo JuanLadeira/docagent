@@ -20,6 +20,7 @@ def get_keycloak_client():
         realm=s.KEYCLOAK_REALM,
         client_id=s.KEYCLOAK_CLIENT_ID,
         client_secret=s.KEYCLOAK_CLIENT_SECRET,
+        internal_url=s.KEYCLOAK_INTERNAL_URL,
     )
 
 

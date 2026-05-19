@@ -10,10 +10,10 @@
       "publicClient": false,
       "secret": "dev-secret-change-in-prod",
       "redirectUris": [
-        "http://localhost:8000/auth/keycloak/callback",
+        "http://localhost:8765/auth/keycloak/callback",
         "http://api:8000/auth/keycloak/callback"
       ],
-      "webOrigins": ["http://localhost:5173", "http://localhost:8000"],
+      "webOrigins": ["http://localhost:5173", "http://localhost:8765"],
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "attributes": {
