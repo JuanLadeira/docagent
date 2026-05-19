@@ -13,18 +13,22 @@ class McpToolPublic(BaseModel):
 class McpServerCreate(BaseModel):
     nome: str
     descricao: str = ""
-    command: str
+    transport: str = "stdio"
+    command: str = ""
     args: list[str] = []
     env: dict[str, str] = {}
+    url: str | None = None
     ativo: bool = True
 
 
 class McpServerUpdate(BaseModel):
     nome: str | None = None
     descricao: str | None = None
+    transport: str | None = None
     command: str | None = None
     args: list[str] | None = None
     env: dict[str, str] | None = None
+    url: str | None = None
     ativo: bool | None = None
 
 
@@ -32,9 +36,11 @@ class McpServerPublic(BaseModel):
     id: int
     nome: str
     descricao: str
+    transport: str
     command: str
     args: list[str]
     env: dict[str, str]
+    url: str | None
     ativo: bool
     tools: list[McpToolPublic] = []
 

@@ -182,9 +182,11 @@ export interface McpServer {
   id: number
   nome: string
   descricao: string
+  transport: string
   command: string
   args: string[]
   env: Record<string, string>
+  url: string | null
   ativo: boolean
   tools: McpTool[]
 }
@@ -232,9 +234,11 @@ export interface ConversaListResponse {
 export interface McpServerCreate {
   nome: string
   descricao: string
+  transport: string
   command: string
   args: string[]
   env: Record<string, string>
+  url: string | null
   ativo: boolean
 }
 

@@ -9,9 +9,11 @@ class McpServer(Base):
 
     nome: Mapped[str] = mapped_column(String(255))
     descricao: Mapped[str] = mapped_column(Text, default="")
-    command: Mapped[str] = mapped_column(String(255))
+    transport: Mapped[str] = mapped_column(String(10), default="stdio")
+    command: Mapped[str] = mapped_column(String(255), default="")
     args: Mapped[list] = mapped_column(JSON, default=list)
     env: Mapped[dict] = mapped_column(JSON, default=dict)
+    url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
 
     tools: Mapped[list["McpTool"]] = relationship(
