@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from docagent.database import AsyncDBSession
+from docagent.keycloak.service import KeycloakService
 from docagent.mcp_server.models import McpServer, McpTool
 from docagent.mcp_server.schemas import McpServerCreate, McpServerUpdate
 
@@ -119,10 +120,25 @@ def get_mcp_service(session: AsyncDBSession) -> McpServerService:
 McpServiceDep = Annotated[McpServerService, Depends(get_mcp_service)]
 
 
+async def _build_mcp_headers(server: McpServer, usuario_id: int | None, redis) -> dict:
+    """Constrói os headers HTTP para uma conexão MCP SSE com base no auth_type do servidor."""
+    if server.auth_type == "keycloak":
+        if not usuario_id or not redis:
+            return {}
+        token = await KeycloakService.get_access_token(usuario_id, redis)
+        return {"Authorization": f"Bearer {token}"} if token else {}
+    if server.auth_type == "static":
+        auth = server.env.get("Authorization", "")
+        return {"Authorization": auth} if auth else {}
+    return {}
+
+
 async def load_mcp_tools_for_skills(
     skill_names: list[str],
     servers: list[McpServer],
     stack: AsyncExitStack,
+    usuario_id: int | None = None,
+    redis=None,
 ) -> list:
     """
     Carrega as tools MCP necessárias para os skill_names que começam com 'mcp:'.
@@ -151,17 +167,20 @@ async def load_mcp_tools_for_skills(
             continue
         if server.transport == "sse":
             from mcp.client.sse import sse_client
-            headers = {}
-            if server.env and "Authorization" in server.env:
-                headers["Authorization"] = server.env["Authorization"]
+            headers = await _build_mcp_headers(server, usuario_id, redis)
             read, write = await stack.enter_async_context(
                 sse_client(server.url, headers=headers or None)
             )
         else:
+            env = dict(server.env or {})
+            if server.auth_type == "keycloak" and usuario_id and redis:
+                token = await KeycloakService.get_access_token(usuario_id, redis)
+                if token:
+                    env["KEYCLOAK_TOKEN"] = token
             params = StdioServerParameters(
                 command=server.command,
                 args=server.args,
-                env=server.env or None,
+                env=env or None,
             )
             read, write = await stack.enter_async_context(stdio_client(params))
         mcp_session = await stack.enter_async_context(ClientSession(read, write))

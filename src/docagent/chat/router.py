@@ -130,7 +130,12 @@ async def chat(
 
     if mcp_skills:
         servers = await mcp_service.get_all()
-        mcp_tools = await load_mcp_tools_for_skills(mcp_skills, servers, stack)
+        redis = getattr(request.app.state, "redis", None)
+        mcp_tools = await load_mcp_tools_for_skills(
+            mcp_skills, servers, stack,
+            usuario_id=current_user.id,
+            redis=redis,
+        )
         agent = _build_agent(agente, extra_tools=mcp_tools, llm=tenant_llm)
     else:
         agent = await _get_or_build_agent(agente, llm=tenant_llm, llm_provider=llm_provider)
@@ -189,7 +194,8 @@ async def _gerar_titulo_bg(conversa_id: int, primeira_mensagem: str, llm) -> Non
 
 @router.post("/chat/sync")
 async def chat_sync(
-    request: ChatRequest,
+    request: Request,
+    body: ChatRequest,
     current_user: CurrentUser,
     agente_service: AgenteServiceDep,
     mcp_service: McpServiceDep,
@@ -198,13 +204,13 @@ async def chat_sync(
     """Endpoint síncrono para integrações externas (n8n, Evolution API, etc).
     Aguarda a resposta completa e retorna JSON."""
     try:
-        agente_id = int(request.agent_id)
+        agente_id = int(body.agent_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="agent_id deve ser um numero inteiro")
 
     agente = await agente_service.get_by_id(agente_id, tenant_id=current_user.tenant_id)
     if not agente or not agente.ativo:
-        raise HTTPException(status_code=404, detail=f"Agente '{request.agent_id}' nao encontrado")
+        raise HTTPException(status_code=404, detail=f"Agente '{body.agent_id}' nao encontrado")
 
     async with AsyncSessionLocal() as llm_db2:
         tenant_llm2 = await get_tenant_llm(current_user.tenant_id, llm_db2)
@@ -215,15 +221,20 @@ async def chat_sync(
         mcp_tools = []
         if mcp_skills:
             servers = await mcp_service.get_all()
-            mcp_tools = await load_mcp_tools_for_skills(mcp_skills, servers, stack)
+            redis_sync = getattr(request.app.state, "redis", None)
+            mcp_tools = await load_mcp_tools_for_skills(
+                mcp_skills, servers, stack,
+                usuario_id=current_user.id,
+                redis=redis_sync,
+            )
             agent = _build_agent(agente, extra_tools=mcp_tools, llm=tenant_llm2)
         else:
             agent = await _get_or_build_agent(agente, llm=tenant_llm2, llm_provider=llm_provider2)
-        state = await sessions.get_async(request.session_id)
-        final_state = agent.run(request.question, state)
+        state = await sessions.get_async(body.session_id)
+        final_state = agent.run(body.question, state)
 
     if agent.last_state is not None:
-        await sessions.update_async(request.session_id, agent.last_state)
+        await sessions.update_async(body.session_id, agent.last_state)
 
     answer = ""
     if final_state and final_state.get("messages"):
@@ -233,8 +244,8 @@ async def chat_sync(
 
     return {
         "answer": answer,
-        "session_id": request.session_id,
-        "agent_id": request.agent_id,
+        "session_id": body.session_id,
+        "agent_id": body.agent_id,
     }
 
 
