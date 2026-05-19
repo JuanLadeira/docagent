@@ -14,6 +14,7 @@ class McpServer(Base):
     args: Mapped[list] = mapped_column(JSON, default=list)
     env: Mapped[dict] = mapped_column(JSON, default=dict)
     url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    auth_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="none")
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
 
     tools: Mapped[list["McpTool"]] = relationship(

@@ -18,6 +18,7 @@ class McpServerCreate(BaseModel):
     args: list[str] = []
     env: dict[str, str] = {}
     url: str | None = None
+    auth_type: str = "none"
     ativo: bool = True
 
 
@@ -29,6 +30,7 @@ class McpServerUpdate(BaseModel):
     args: list[str] | None = None
     env: dict[str, str] | None = None
     url: str | None = None
+    auth_type: str | None = None
     ativo: bool | None = None
 
 
@@ -41,6 +43,7 @@ class McpServerPublic(BaseModel):
     args: list[str]
     env: dict[str, str]
     url: str | None
+    auth_type: str
     ativo: bool
     tools: list[McpToolPublic] = []
 
