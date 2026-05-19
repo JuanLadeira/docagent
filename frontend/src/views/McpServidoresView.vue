@@ -18,6 +18,7 @@ const form = ref({
   args: '',
   env: '',
   url: '',
+  auth_type: 'none',
   ativo: true,
 })
 
@@ -33,7 +34,7 @@ async function carregar() {
 
 function abrirCriar() {
   editando.value = null
-  form.value = { nome: '', descricao: '', transport: 'stdio', command: '', args: '', env: '', url: '', ativo: true }
+  form.value = { nome: '', descricao: '', transport: 'stdio', command: '', args: '', env: '', url: '', auth_type: 'none', ativo: true }
   showModal.value = true
 }
 
@@ -47,6 +48,7 @@ function abrirEditar(server: McpServer) {
     args: server.args.join('\n'),
     env: Object.entries(server.env).map(([k, v]) => `${k}=${v}`).join('\n'),
     url: server.url ?? '',
+    auth_type: server.auth_type ?? 'none',
     ativo: server.ativo,
   }
   showModal.value = true
@@ -80,6 +82,7 @@ async function salvar() {
       args: parseArgs(form.value.args),
       env: parseEnv(form.value.env),
       url: form.value.url.trim() || null,
+      auth_type: form.value.auth_type,
       ativo: form.value.ativo,
     }
     if (editando.value) {
@@ -269,6 +272,26 @@ onMounted(carregar)
                 <input v-model="form.transport" type="radio" value="sse" class="accent-indigo-600" />
                 <span class="text-sm text-gray-700 dark:text-slate-200">SSE</span>
                 <span class="text-xs text-gray-400 dark:text-slate-500">(servidor HTTP)</span>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-gray-600 dark:text-slate-300 mb-2">Autenticação</label>
+            <div class="flex gap-3 flex-wrap">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input v-model="form.auth_type" type="radio" value="none" class="accent-indigo-600" />
+                <span class="text-sm text-gray-700 dark:text-slate-200">Nenhuma</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input v-model="form.auth_type" type="radio" value="static" class="accent-indigo-600" />
+                <span class="text-sm text-gray-700 dark:text-slate-200">Token estático</span>
+                <span class="text-xs text-gray-400 dark:text-slate-500">(env Authorization=)</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input v-model="form.auth_type" type="radio" value="keycloak" class="accent-indigo-600" />
+                <span class="text-sm text-gray-700 dark:text-slate-200">Keycloak</span>
+                <span class="text-xs text-gray-400 dark:text-slate-500">(token do usuário logado)</span>
               </label>
             </div>
           </div>
